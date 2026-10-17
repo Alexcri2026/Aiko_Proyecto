@@ -1,12 +1,10 @@
 import os
 import gradio as gr
-from google import genai
-from google.genai import types
-from PIL import Image
+from huggingface_hub import InferenceClient
 
-# Inicialización del nuevo cliente de Google GenAI
-api_key = os.environ.get("GEMINI_API_KEY")
-client = genai.Client(api_key=api_key) if api_key else None
+# Inicializar cliente de Hugging Face con la variable de entorno
+hf_token = os.environ.get("HF_TOKEN")
+client = InferenceClient(api_key=hf_token) if hf_token else None
 
 # Definición de la personalidad de Aiko
 AIKO_SYSTEM_INSTRUCTION = (
@@ -16,40 +14,38 @@ AIKO_SYSTEM_INSTRUCTION = (
     "usando emojis kawaii de forma natural."
 )
 
-def respond(message, history, image_input):
+def respond(message, history):
     if not client:
-        return "Error: La clave GEMINI_API_KEY no está configurada en Render."
+        return "Error: La clave HF_TOKEN no está configurada en Render."
     
     try:
-        # Configurar la personalidad y parámetros de respuesta
-        config = types.GenerateContentConfig(
-            system_instruction=AIKO_SYSTEM_INSTRUCTION,
-            max_output_tokens=1000,
+        # Construir el historial de mensajes
+        messages = [{"role": "system", "content": AIKO_SYSTEM_INSTRUCTION}]
+        
+        # Cargar historial previo
+        if history:
+            for user_msg, assistant_msg in history:
+                if user_msg:
+                    messages.append({"role": "user", "content": user_msg})
+                if assistant_msg:
+                    messages.append({"role": "assistant", "content": assistant_msg})
+                
+        # Añadir mensaje actual
+        messages.append({"role": "user", "content": message})
+
+        # Generar respuesta usando Llama-3.2 a través de Hugging Face
+        response = client.chat.completions.create(
+            model="meta-llama/Llama-3.2-3B-Instruct",
+            messages=messages,
+            max_tokens=500,
             temperature=0.7
         )
         
-        # Procesamiento si el usuario incluye una imagen
-        if image_input is not None:
-            img = Image.open(image_input)
-            prompt = message if message else "Describe esta imagen con detalle"
-            response = client.models.generate_content(
-                model="gemini-3.8-flash",
-                contents=[img, prompt],
-                config=config
-            )
-        else:
-            # Procesamiento de mensaje de texto normal
-            response = client.models.generate_content(
-                model="gemini-3.8-flash",
-                contents=message,
-                config=config
-            )
-            
-        return response.text
+        return response.choices[0].message.content
     except Exception as e:
         return f"Ocurrió un error: {str(e)}"
 
-# Diseño pastel de la interfaz
+# Interfaz gráfica en tono pastel
 theme = gr.themes.Soft(
     primary_hue="indigo",
     secondary_hue="blue",
@@ -58,16 +54,11 @@ theme = gr.themes.Soft(
 with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
     gr.Markdown("# ✨ Aiko AI Companion")
     
-    with gr.Row():
-        with gr.Column(scale=4):
-            chatbot = gr.ChatInterface(
-                fn=respond,
-                additional_inputs=[
-                    gr.Image(type="filepath", label="Subir imagen para Aiko")
-                ]
-            )
+    chatbot = gr.ChatInterface(
+        fn=respond
+    )
 
-# Puerto dinámico asignado por Render
+# Puerto dinámico para Render
 port = int(os.environ.get("PORT", 7860))
 
 if __name__ == "__main__":
