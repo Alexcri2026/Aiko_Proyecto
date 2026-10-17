@@ -29,14 +29,14 @@ def respond(message, history, image_input):
         if image_input is not None:
             img = Image.open(image_input)
             response = client.models.generate_content(
-                model="gemini-3.8-flash",
+                model="gemini-2.5-flash",
                 contents=[img, message if message else "Describe esta imagen"],
                 config=config
             )
         else:
-            # Chat de texto normal
+            # Chat de texto normal con gemini-2.5-flash
             response = client.models.generate_content(
-                model="gemini-3.8-flash",
+                model="gemini-2.5-flash",
                 contents=message,
                 config=config
             )
