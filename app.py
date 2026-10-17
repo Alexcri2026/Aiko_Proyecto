@@ -36,7 +36,7 @@ def respond(message, history, image_input):
         else:
             # Chat de texto normal con gemini-2.5-flash
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model = genai.GenerativeModel('gemini-3.8-flash'),
                 contents=message,
                 config=config
             )
