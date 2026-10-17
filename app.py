@@ -1,4 +1,4 @@
-import os
+Import os
 import gradio as gr
 from google import genai
 from google.genai import types
@@ -29,14 +29,14 @@ def respond(message, history, image_input):
         if image_input is not None:
             img = Image.open(image_input)
             response = client.models.generate_content(
-                model = genai.GenerativeModel('gemini-3.8-flash'),
+                model="gemini-3.8-flash",
                 contents=[img, message if message else "Describe esta imagen"],
                 config=config
             )
         else:
-            # Chat de texto normal con gemini-2.5-flash
+            # Chat de texto normal
             response = client.models.generate_content(
-                model = genai.GenerativeModel('gemini-3.8-flash'),
+                model="gemini-3.8-flash",
                 contents=message,
                 config=config
             )
