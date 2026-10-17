@@ -1,12 +1,11 @@
 import os
 import gradio as gr
-from huggingface_hub import InferenceClient
+import requests
 
-# Inicializar cliente de Hugging Face con la variable de entorno
+# Clave de API de Hugging Face desde Render
 hf_token = os.environ.get("HF_TOKEN")
-client = InferenceClient(api_key=hf_token) if hf_token else None
 
-# Definición de la personalidad de Aiko
+# Personalidad y rol de Aiko
 AIKO_SYSTEM_INSTRUCTION = (
     "Eres Aiko, una compañera virtual de anime en 2D dulce, atenta, empática y alegre. "
     "Tus respuestas deben ser expresivas, detalladas y fluidas. Demuestra curiosidad por lo que te cuenta "
@@ -14,38 +13,55 @@ AIKO_SYSTEM_INSTRUCTION = (
     "usando emojis kawaii de forma natural."
 )
 
+# Modelo gratuito alojado en Hugging Face Serverless
+MODEL_URL = "https://api-inference.huggingface.co/models/HuggingFaceH4/zephyr-7b-beta"
+
 def respond(message, history):
-    if not client:
+    if not hf_token:
         return "Error: La clave HF_TOKEN no está configurada en Render."
     
-    try:
-        # Construir el historial de mensajes
-        messages = [{"role": "system", "content": AIKO_SYSTEM_INSTRUCTION}]
-        
-        # Cargar historial previo
-        if history:
-            for user_msg, assistant_msg in history:
-                if user_msg:
-                    messages.append({"role": "user", "content": user_msg})
-                if assistant_msg:
-                    messages.append({"role": "assistant", "content": assistant_msg})
+    headers = {
+        "Authorization": f"Bearer {hf_token}",
+        "Content-Type": "application/json"
+    }
+
+    # Formatear la conversación completa
+    prompt = f"<|system|>\n{AIKO_SYSTEM_INSTRUCTION}</s>\n"
+    
+    if history:
+        for user_msg, assistant_msg in history:
+            if user_msg:
+                prompt += f"<|user|>\n{user_msg}</s>\n"
+            if assistant_msg:
+                prompt += f"<|assistant|>\n{assistant_msg}</s>\n"
                 
-        # Añadir mensaje actual
-        messages.append({"role": "user", "content": message})
+    prompt += f"<|user|>\n{message}</s>\n<|assistant|>\n"
 
-        # Generar respuesta usando Llama-3.2 a través de Hugging Face
-        response = client.chat.completions.create(
-            model="meta-llama/Llama-3.2-3B-Instruct",
-            messages=messages,
-            max_tokens=500,
-            temperature=0.7
-        )
-        
-        return response.choices[0].message.content
+    payload = {
+        "inputs": prompt,
+        "parameters": {
+            "max_new_tokens": 500,
+            "temperature": 0.7,
+            "top_p": 0.9,
+            "return_full_text": False
+        }
+    }
+
+    try:
+        response = requests.post(MODEL_URL, headers=headers, json=payload, timeout=30)
+        result = response.json()
+
+        if response.status_code == 200 and isinstance(result, list) and len(result) > 0:
+            return result[0].get("generated_text", "").strip()
+        elif "error" in result:
+            return f"Error de Hugging Face: {result['error']}"
+        else:
+            return "No se pudo obtener una respuesta válida en este momento."
+
     except Exception as e:
-        return f"Ocurrió un error: {str(e)}"
+        return f"Ocurrió un error en la conexión: {str(e)}"
 
-# Interfaz gráfica en tono pastel
+# Diseño en tono pastel
 theme = gr.themes.Soft(
     primary_hue="indigo",
     secondary_hue="blue",
