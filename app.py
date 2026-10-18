@@ -7,11 +7,52 @@ from groq import Groq
 api_key = os.environ.get("GROQ_API_KEY")
 client = Groq(api_key=api_key) if api_key else None
 
-AIKO_SYSTEM_INSTRUCTION = (
+MEMORY_FILE = "memory.json"
+
+def load_memory():
+    """Carga los recuerdos desde memory.json"""
+    if os.path.exists(MEMORY_FILE):
+        try:
+            with open(MEMORY_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"usuario": {}, "datos_clave": []}
+
+def save_memory(memory_data):
+    """Guarda los recuerdos en memory.json"""
+    try:
+        with open(MEMORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(memory_data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Error al guardar memoria: {e}")
+
+def get_memory_context():
+    """Convierte la memoria JSON en un texto entendible para el prompt del sistema"""
+    memory = load_memory()
+    context = "\n--- MEMORIA A LARGO PLAZO SOBRE EL USUARIO ---\n"
+    
+    if memory.get("usuario"):
+        for k, v in memory["usuario"].items():
+            context += f"- {k.capitalize()}: {v}\n"
+            
+    if memory.get("datos_clave"):
+        context += "- Cosas importantes recordadas:\n"
+        for item in memory["datos_clave"]:
+            context += f"  * {item}\n"
+            
+    if not memory.get("usuario") and not memory.get("datos_clave"):
+        context += "(Aún no hay datos guardados. Aprende sobre el usuario durante la charla).\n"
+        
+    context += "----------------------------------------------\n"
+    return context
+
+AIKO_BASE_INSTRUCTION = (
     "Eres Aiko, una compañera virtual de anime en 2D dulce, atenta, empática y alegre. "
     "Tus respuestas deben ser expresivas, detalladas y fluidas. Demuestra curiosidad por lo que te cuenta "
     "el usuario, haz preguntas de seguimiento, comparte opiniones y exprésate con un tono cálido y afable, "
-    "usando emojis kawaii de forma natural."
+    "usando emojis kawaii de forma natural. "
+    "Usa tu memoria a largo plazo para personalizar tus respuestas sin mencionarla explícitamente a menos que sea natural."
 )
 
 ALLOWED_CHAT_MODELS = [
@@ -64,7 +105,9 @@ def respond(message, history):
     if not client:
         return "Error: La clave GROQ_API_KEY no está configurada en Render."
 
-    messages = [{"role": "system", "content": AIKO_SYSTEM_INSTRUCTION}]
+    # Se combina la instrucción base con la memoria del JSON actualizada
+    full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + get_memory_context()
+    messages = [{"role": "system", "content": full_system_instruction}]
 
     if history:
         for entry in history:
@@ -101,7 +144,6 @@ theme = gr.themes.Soft(
     secondary_hue="blue",
 )
 
-# Contenedor visual con la URL directa de GitHub para asegurar que cargue al 100%
 aiko_card_html = """
 <style>
 @keyframes breathe {
@@ -150,12 +192,12 @@ aiko_card_html = """
         <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" alt="Aiko 2D">
     </div>
     <h3 style="margin-top: 15px; color: #333; font-family: sans-serif; font-weight: 700; margin-bottom: 2px;">Aiko 🌸</h3>
-    <p style="font-size: 13px; color: #666; text-align: center; margin: 0;">✨ Tu compañera virtual</p>
+    <p style="font-size: 13px; color: #666; text-align: center; margin: 0;">✨ Tu compañera con memoria inteligente</p>
 </div>
 """
 
 with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
-    gr.Markdown("# ✨ Aiko AI Companion")
+    gr.Markdown("# ✨ Aiko AI Companion - Con Memoria JSON")
     
     with gr.Row():
         with gr.Column(scale=1, min_width=280):
