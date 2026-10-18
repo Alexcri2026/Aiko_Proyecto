@@ -14,19 +14,13 @@ AIKO_SYSTEM_INSTRUCTION = (
     "usando emojis kawaii de forma natural."
 )
 
-# Lista de modelos activos en Groq
-ACTIVE_GROQ_MODELS = [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant"
-]
-
 def respond(message, history):
     if not client:
         return "Error: La clave GROQ_API_KEY no está configurada en Render."
 
     messages = [{"role": "system", "content": AIKO_SYSTEM_INSTRUCTION}]
 
-    # Conversión flexible y segura del historial para evitar errores
+    # Conversión flexible del historial
     if history:
         for entry in history:
             if isinstance(entry, dict):
@@ -45,22 +39,17 @@ def respond(message, history):
 
     messages.append({"role": "user", "content": message})
 
-    # Intentar llamadas con los modelos oficiales vigentes
-    last_error = ""
-    for model in ACTIVE_GROQ_MODELS:
-        try:
-            completion = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=0.7,
-                max_tokens=1024,
-            )
-            return completion.choices[0].message.content
-        except Exception as e:
-            last_error = str(e)
-            continue
-
-    return f"Ocurrió un error con Groq: {last_error}"
+    try:
+        # Llamada directa al modelo principal y activo de Groq
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=1024,
+        )
+        return completion.choices[0].message.content
+    except Exception as e:
+        return f"Ocurrió un error con Groq: {str(e)}"
 
 theme = gr.themes.Soft(
     primary_hue="indigo",
@@ -70,7 +59,6 @@ theme = gr.themes.Soft(
 with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
     gr.Markdown("# ✨ Aiko AI Companion")
     
-    # Interfaz limpia sin argumentos incompatibles
     gr.ChatInterface(
         fn=respond
     )
