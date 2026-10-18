@@ -15,19 +15,23 @@ AIKO_SYSTEM_INSTRUCTION = (
 )
 
 def get_best_available_model():
-    """Consulta automáticamente a Groq qué modelos están activos en tu cuenta"""
+    """Busca dinámicamente un modelo de chat válido en Groq, filtrando los de seguridad"""
     if not client:
         return "llama-3.3-70b-versatile"
     try:
         models_response = client.models.list()
-        available_ids = [m.id for m in models_response.data]
+        # Filtrar para excluir modelos de seguridad (guard), embeddings, etc.
+        available_ids = [
+            m.id for m in models_response.data 
+            if "guard" not in m.id.lower() and "embed" not in m.id.lower()
+        ]
         
-        # Priorizar modelos de Llama en orden de preferencia
+        # Priorizar modelos de chat oficiales de Llama
         for preferred in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama3-70b-8192", "llama3-8b-8192"]:
             if preferred in available_ids:
                 return preferred
                 
-        # Si hay alguno disponible en la lista, tomar el primero
+        # Si hay otro disponible que no sea de seguridad, tomar el primero
         if available_ids:
             return available_ids[0]
     except Exception:
@@ -60,7 +64,7 @@ def respond(message, history):
 
     messages.append({"role": "user", "content": message})
 
-    # Obtener dinámicamente el modelo activo en tu cuenta
+    # Obtener un modelo de chat adecuado
     model_to_use = get_best_available_model()
 
     try:
@@ -68,7 +72,7 @@ def respond(message, history):
             model=model_to_use,
             messages=messages,
             temperature=0.7,
-            max_tokens=1024,
+            max_tokens=512,  # Ajustado de manera segura
         )
         return completion.choices[0].message.content
     except Exception as e:
