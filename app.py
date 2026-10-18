@@ -4,11 +4,9 @@ import re
 import gradio as gr
 from groq import Groq
 
-# Inicializar cliente de Groq
 api_key = os.environ.get("GROQ_API_KEY")
 client = Groq(api_key=api_key) if api_key else None
 
-# Personalidad original de Aiko
 AIKO_SYSTEM_INSTRUCTION = (
     "Eres Aiko, una compañera virtual de anime en 2D dulce, atenta, empática y alegre. "
     "Tus respuestas deben ser expresivas, detalladas y fluidas. Demuestra curiosidad por lo que te cuenta "
@@ -37,12 +35,9 @@ def get_best_chat_model():
     return ALLOWED_CHAT_MODELS[0]
 
 def clean_response(text):
-    """Elimina etiquetas extra como 'text', JSON anidado y exceso de saltos de línea"""
     if not isinstance(text, str):
         text = str(text)
-    
     cleaned = text.strip()
-    
     for _ in range(3):
         if (cleaned.startswith("[") and cleaned.endswith("]")) or (cleaned.startswith("{") and cleaned.endswith("}")):
             try:
@@ -60,13 +55,10 @@ def clean_response(text):
             except Exception:
                 pass
         break
-        
     cleaned = cleaned.replace("[{'text': '", "").replace('"}]', "").replace('"]', "")
     cleaned = re.sub(r'^(text\b[:\s]*)+', '', cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r'(\b[:\s]*text)+$', '', cleaned)
-    cleaned = cleaned.strip()
-    
-    return cleaned
+    return cleaned.strip()
 
 def respond(message, history):
     if not client:
@@ -100,10 +92,7 @@ def respond(message, history):
             temperature=0.7,
             max_tokens=512,
         )
-        
-        raw_text = completion.choices[0].message.content
-        return clean_response(raw_text)
-
+        return clean_response(completion.choices[0].message.content)
     except Exception as e:
         return f"Ocurrió un error con el modelo {model_to_use}: {str(e)}"
 
@@ -112,40 +101,56 @@ theme = gr.themes.Soft(
     secondary_hue="blue",
 )
 
-# Contenedor visual apuntando a tu imagen aiko.jpg con animaciones de respiración y parpadeo
-aiko_animated_container = """
+# Contenedor visual optimizado para mostrar tu aiko.jpg completa y vertical
+aiko_card_html = """
 <style>
 @keyframes breathe {
     0%, 100% { transform: translateY(0px) scale(1); }
-    50% { transform: translateY(-6px) scale(1.02); }
+    50% { transform: translateY(-4px) scale(1.01); }
 }
 
 @keyframes blink {
     0%, 85%, 100% { filter: brightness(1); }
-    88% { filter: brightness(0.7) contrast(1.1); transform: scaleY(0.98); }
+    88% { filter: brightness(0.75) contrast(1.05); }
     91% { filter: brightness(1); }
 }
 
-.aiko-live-avatar {
-    width: 240px;
-    height: 240px;
-    object-fit: cover;
-    border-radius: 50%;
-    border: 5px solid #ffffff;
-    box-shadow: 0 12px 35px rgba(255, 105, 180, 0.3);
-    animation: breathe 4s ease-in-out infinite, blink 5s ease-in-out infinite;
-    transition: transform 0.3s ease;
+.aiko-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%);
+    border-radius: 20px;
+    padding: 20px;
+    box-shadow: 0 8px 25px rgba(0,0,0,0.08);
+    height: 100%;
 }
 
-.aiko-live-avatar:hover {
-    transform: scale(1.05);
+.aiko-image-container {
+    width: 220px;
+    height: 320px;
+    border-radius: 15px;
+    overflow: hidden;
+    border: 4px solid #ffffff;
+    box-shadow: 0 8px 20px rgba(255, 105, 180, 0.25);
+    animation: breathe 4s ease-in-out infinite, blink 5s ease-in-out infinite;
+}
+
+.aiko-image-container img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top center;
 }
 </style>
 
-<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%); border-radius: 20px; padding: 30px; height: 100%; min-height: 450px;">
-    <img src="file=aiko.jpg" class="aiko-live-avatar" alt="Aiko Animada">
-    <h3 style="margin-top: 20px; color: #333; font-family: sans-serif; font-weight: 700;">Aiko 🌸</h3>
-    <p style="font-size: 14px; color: #666; text-align: center; margin: 5px 0 0 0;">✨ Lista para conversar contigo</p>
+<div class="aiko-card">
+    <div class="aiko-image-container">
+        <img src="/file=aiko.jpg" alt="Aiko 2D">
+    </div>
+    <h3 style="margin-top: 15px; color: #333; font-family: sans-serif; font-weight: 700; margin-bottom: 2px;">Aiko 🌸</h3>
+    <p style="font-size: 13px; color: #666; text-align: center; margin: 0;">✨ Tu compañera virtual</p>
 </div>
 """
 
@@ -153,8 +158,8 @@ with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
     gr.Markdown("# ✨ Aiko AI Companion")
     
     with gr.Row():
-        with gr.Column(scale=1):
-            gr.HTML(aiko_animated_container)
+        with gr.Column(scale=1, min_width=280):
+            gr.HTML(aiko_card_html)
             
         with gr.Column(scale=2):
             gr.ChatInterface(
