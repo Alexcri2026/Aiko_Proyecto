@@ -1,4 +1,5 @@
 import os
+import json
 import gradio as gr
 from groq import Groq
 
@@ -6,7 +7,7 @@ from groq import Groq
 api_key = os.environ.get("GROQ_API_KEY")
 client = Groq(api_key=api_key) if api_key else None
 
-# Personalidad de Aiko
+# Personalidad original de Aiko
 AIKO_SYSTEM_INSTRUCTION = (
     "Eres Aiko, una compañera virtual de anime en 2D dulce, atenta, empática y alegre. "
     "Tus respuestas deben ser expresivas, detalladas y fluidas. Demuestra curiosidad por lo que te cuenta "
@@ -14,34 +15,54 @@ AIKO_SYSTEM_INSTRUCTION = (
     "usando emojis kawaii de forma natural."
 )
 
-# Lista de modelos de chat comprobados y libres de términos o restricciones especiales
+# Priorizando los modelos GPT-OSS de OpenAI alojados en Groq, seguidos de Llama
 ALLOWED_CHAT_MODELS = [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
-    "llama3-70b-8192",
-    "llama3-8b-8192"
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant"
 ]
 
 def get_best_chat_model():
-    """Selecciona el mejor modelo de chat activo en la cuenta sin caer en modelos TTS, Audio o Guard"""
     if not client:
         return ALLOWED_CHAT_MODELS[0]
-    
     try:
         models_response = client.models.list()
         active_ids = [m.id for m in models_response.data]
-        
-        # Recorremos en orden estricto de preferencia
         for model in ALLOWED_CHAT_MODELS:
             if model in active_ids:
                 return model
     except Exception:
         pass
-
-    # Si falla la consulta, usar por defecto el principal
     return ALLOWED_CHAT_MODELS[0]
+
+def clean_response(text):
+    """Limpia recursivamente cualquier estructura JSON anidada o etiquetas extra del texto"""
+    if not isinstance(text, str):
+        text = str(text)
+    
+    cleaned = text.strip()
+    
+    for _ in range(3):
+        if (cleaned.startswith("[") and cleaned.endswith("]")) or (cleaned.startswith("{") and cleaned.endswith("}")):
+            try:
+                parsed = json.loads(cleaned)
+                if isinstance(parsed, list) and len(parsed) > 0:
+                    if isinstance(parsed[0], dict) and "text" in parsed[0]:
+                        cleaned = str(parsed[0]["text"]).strip()
+                        continue
+                    else:
+                        cleaned = str(parsed[0]).strip()
+                        continue
+                elif isinstance(parsed, dict) and "text" in parsed:
+                    cleaned = str(parsed["text"]).strip()
+                    continue
+            except Exception:
+                pass
+        break
+        
+    cleaned = cleaned.replace("[{'text': '", "").replace('"}]', "").replace('"]', "")
+    return cleaned
 
 def respond(message, history):
     if not client:
@@ -67,8 +88,6 @@ def respond(message, history):
                         messages.append({"role": "assistant", "content": str(bot_text)})
 
     messages.append({"role": "user", "content": message})
-
-    # Seleccionar un modelo seguro
     model_to_use = get_best_chat_model()
 
     try:
@@ -78,7 +97,10 @@ def respond(message, history):
             temperature=0.7,
             max_tokens=512,
         )
-        return completion.choices[0].message.content
+        
+        raw_text = completion.choices[0].message.content
+        return clean_response(raw_text)
+
     except Exception as e:
         return f"Ocurrió un error con el modelo {model_to_use}: {str(e)}"
 
