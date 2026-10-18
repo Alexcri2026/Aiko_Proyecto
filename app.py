@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import gradio as gr
 from groq import Groq
 
@@ -15,7 +16,6 @@ AIKO_SYSTEM_INSTRUCTION = (
     "usando emojis kawaii de forma natural."
 )
 
-# Priorizando los modelos GPT-OSS de OpenAI alojados en Groq, seguidos de Llama
 ALLOWED_CHAT_MODELS = [
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
@@ -37,12 +37,13 @@ def get_best_chat_model():
     return ALLOWED_CHAT_MODELS[0]
 
 def clean_response(text):
-    """Limpia recursivamente cualquier estructura JSON anidada o etiquetas extra del texto"""
+    """Elimina etiquetas extra como 'text', JSON anidado y exceso de saltos de línea"""
     if not isinstance(text, str):
         text = str(text)
     
     cleaned = text.strip()
     
+    # Intentar decodificar estructuras JSON anidadas
     for _ in range(3):
         if (cleaned.startswith("[") and cleaned.endswith("]")) or (cleaned.startswith("{") and cleaned.endswith("}")):
             try:
@@ -61,7 +62,16 @@ def clean_response(text):
                 pass
         break
         
+    # Limpieza específica de restos de corchetes y comillas
     cleaned = cleaned.replace("[{'text': '", "").replace('"}]', "").replace('"]', "")
+    
+    # Eliminar la palabra "text" suelta si aparece al inicio o final de forma aislada
+    cleaned = re.sub(r'^(text\b[:\s]*)+', '', cleaned, flags=IGNORECASE if 'IGNORECASE' in globals() else 0)
+    cleaned = re.sub(r'(\b[:\s]*text)+$', '', cleaned)
+    
+    # Limpiar espacios extra
+    cleaned = cleaned.strip()
+    
     return cleaned
 
 def respond(message, history):
