@@ -14,19 +14,19 @@ AIKO_SYSTEM_INSTRUCTION = (
     "usando emojis kawaii de forma natural."
 )
 
+# Lista estricta de modelos activos en Groq (SIN modelos discontinuados)
+ACTIVE_GROQ_MODELS = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant"
+]
+
 def respond(message, history):
     if not client:
         return "Error: La clave GROQ_API_KEY no está configurada en Render."
 
-    # Modelos activos y soportados en Groq
-    models_to_try = [
-        "llama-3.3-70b-versatile",
-        "llama-3.1-8b-instant"
-    ]
-
     messages = [{"role": "system", "content": AIKO_SYSTEM_INSTRUCTION}]
 
-    # Conversión flexible del historial de Gradio
+    # Conversión segura del historial de Gradio
     if history:
         for entry in history:
             if isinstance(entry, dict):
@@ -45,9 +45,9 @@ def respond(message, history):
 
     messages.append({"role": "user", "content": message})
 
-    # Probar únicamente modelos activos en producción
+    # Intentar llamadas únicamente con los modelos oficiales vigentes
     last_error = ""
-    for model in models_to_try:
+    for model in ACTIVE_GROQ_MODELS:
         try:
             completion = client.chat.completions.create(
                 model=model,
