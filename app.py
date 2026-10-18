@@ -1,12 +1,12 @@
 import os
 import gradio as gr
-from huggingface_hub import InferenceClient
+from groq import Groq
 
-# Inicializar cliente oficial de Hugging Face
-hf_token = os.environ.get("HF_TOKEN")
-client = InferenceClient(token=hf_token) if hf_token else None
+# Inicializar cliente de Groq usando la variable de entorno de Render
+api_key = os.environ.get("GROQ_API_KEY")
+client = Groq(api_key=api_key) if api_key else None
 
-# Personalidad de Aiko
+# Definición de la personalidad y rol de Aiko
 AIKO_SYSTEM_INSTRUCTION = (
     "Eres Aiko, una compañera virtual de anime en 2D dulce, atenta, empática y alegre. "
     "Tus respuestas deben ser expresivas, detalladas y fluidas. Demuestra curiosidad por lo que te cuenta "
@@ -16,13 +16,13 @@ AIKO_SYSTEM_INSTRUCTION = (
 
 def respond(message, history):
     if not client:
-        return "Error: La clave HF_TOKEN no está configurada en Render."
+        return "Error: La clave GROQ_API_KEY no está configurada en Render."
     
     try:
-        # Estructura de mensajes para el formato Chat
+        # Construir el historial de mensajes para Groq
         messages = [{"role": "system", "content": AIKO_SYSTEM_INSTRUCTION}]
         
-        # Cargar el historial previo
+        # Añadir historial previo si existe
         if history:
             for user_msg, assistant_msg in history:
                 if user_msg:
@@ -30,23 +30,22 @@ def respond(message, history):
                 if assistant_msg:
                     messages.append({"role": "assistant", "content": assistant_msg})
                 
-        # Mensaje actual del usuario
+        # Añadir mensaje actual del usuario
         messages.append({"role": "user", "content": message})
 
-        # Llamada al modelo gratuito Serverless Qwen 2.5 72B
-        response = client.chat.completions.create(
-            model="Qwen/Qwen2.5-72B-Instruct",
+        # Llamada a la API de Groq usando Llama 3.3 70B Versatile
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
             messages=messages,
-            max_tokens=500,
-            temperature=0.7
+            temperature=0.7,
+            max_tokens=1024,
         )
         
-        return response.choices[0].message.content
-
+        return completion.choices[0].message.content
     except Exception as e:
         return f"Ocurrió un error: {str(e)}"
 
-# Interfaz pastel de Gradio
+# Interfaz gráfica con temas suaves en tono pastel
 theme = gr.themes.Soft(
     primary_hue="indigo",
     secondary_hue="blue",
@@ -59,7 +58,7 @@ with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
         fn=respond
     )
 
-# Puerto dinámico para Render
+# Configuración del puerto dinámico requerida por Render
 port = int(os.environ.get("PORT", 7860))
 
 if __name__ == "__main__":
