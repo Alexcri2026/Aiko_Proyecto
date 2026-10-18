@@ -1,5 +1,4 @@
 import os
-import json
 import gradio as gr
 from groq import Groq
 
@@ -15,24 +14,33 @@ AIKO_SYSTEM_INSTRUCTION = (
     "usando emojis kawaii de forma natural."
 )
 
+# Lista de modelos de chat comprobados y libres de términos o restricciones especiales
 ALLOWED_CHAT_MODELS = [
     "llama-3.3-70b-versatile",
     "llama-3.1-8b-instant",
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
     "llama3-70b-8192",
     "llama3-8b-8192"
 ]
 
 def get_best_chat_model():
+    """Selecciona el mejor modelo de chat activo en la cuenta sin caer en modelos TTS, Audio o Guard"""
     if not client:
         return ALLOWED_CHAT_MODELS[0]
+    
     try:
         models_response = client.models.list()
         active_ids = [m.id for m in models_response.data]
+        
+        # Recorremos en orden estricto de preferencia
         for model in ALLOWED_CHAT_MODELS:
             if model in active_ids:
                 return model
     except Exception:
         pass
+
+    # Si falla la consulta, usar por defecto el principal
     return ALLOWED_CHAT_MODELS[0]
 
 def respond(message, history):
@@ -59,6 +67,8 @@ def respond(message, history):
                         messages.append({"role": "assistant", "content": str(bot_text)})
 
     messages.append({"role": "user", "content": message})
+
+    # Seleccionar un modelo seguro
     model_to_use = get_best_chat_model()
 
     try:
@@ -68,24 +78,7 @@ def respond(message, history):
             temperature=0.7,
             max_tokens=512,
         )
-        
-        raw_text = completion.choices[0].message.content
-        
-        # --- FILTRO DE LIMPIEZA DE TEXTO ---
-        if isinstance(raw_text, str):
-            cleaned_text = raw_text.strip()
-            # Si el texto viene por error envuelto en formato JSON de lista/diccionario
-            if cleaned_text.startswith("[") and "type" in cleaned_text:
-                try:
-                    parsed = json.loads(cleaned_text)
-                    if isinstance(parsed, list) and len(parsed) > 0 and "text" in parsed[0]:
-                        cleaned_text = parsed[0]["text"]
-                except Exception:
-                    pass
-            return cleaned_text
-            
-        return str(raw_text)
-
+        return completion.choices[0].message.content
     except Exception as e:
         return f"Ocurrió un error con el modelo {model_to_use}: {str(e)}"
 
