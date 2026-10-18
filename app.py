@@ -101,7 +101,7 @@ theme = gr.themes.Soft(
     secondary_hue="blue",
 )
 
-# Contenedor visual optimizado para mostrar tu aiko.jpg completa y vertical
+# Contenedor visual con la URL directa de GitHub para asegurar que cargue al 100%
 aiko_card_html = """
 <style>
 @keyframes breathe {
@@ -147,7 +147,7 @@ aiko_card_html = """
 
 <div class="aiko-card">
     <div class="aiko-image-container">
-        <img src="/file=aiko.jpg" alt="Aiko 2D">
+        <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" alt="Aiko 2D">
     </div>
     <h3 style="margin-top: 15px; color: #333; font-family: sans-serif; font-weight: 700; margin-bottom: 2px;">Aiko 🌸</h3>
     <p style="font-size: 13px; color: #666; text-align: center; margin: 0;">✨ Tu compañera virtual</p>
