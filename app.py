@@ -43,7 +43,6 @@ def clean_response(text):
     
     cleaned = text.strip()
     
-    # Intentar decodificar estructuras JSON anidadas
     for _ in range(3):
         if (cleaned.startswith("[") and cleaned.endswith("]")) or (cleaned.startswith("{") and cleaned.endswith("}")):
             try:
@@ -62,14 +61,9 @@ def clean_response(text):
                 pass
         break
         
-    # Limpieza específica de restos de corchetes y comillas
     cleaned = cleaned.replace("[{'text': '", "").replace('"}]', "").replace('"]', "")
-    
-    # Eliminar la palabra "text" suelta si aparece al inicio o final de forma aislada
-    cleaned = re.sub(r'^(text\b[:\s]*)+', '', cleaned, flags=IGNORECASE if 'IGNORECASE' in globals() else 0)
+    cleaned = re.sub(r'^(text\b[:\s]*)+', '', cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r'(\b[:\s]*text)+$', '', cleaned)
-    
-    # Limpiar espacios extra
     cleaned = cleaned.strip()
     
     return cleaned
@@ -80,7 +74,6 @@ def respond(message, history):
 
     messages = [{"role": "system", "content": AIKO_SYSTEM_INSTRUCTION}]
 
-    # Conversión flexible del historial
     if history:
         for entry in history:
             if isinstance(entry, dict):
@@ -119,12 +112,54 @@ theme = gr.themes.Soft(
     secondary_hue="blue",
 )
 
+# Contenedor visual apuntando a tu imagen aiko.jpg con animaciones de respiración y parpadeo
+aiko_animated_container = """
+<style>
+@keyframes breathe {
+    0%, 100% { transform: translateY(0px) scale(1); }
+    50% { transform: translateY(-6px) scale(1.02); }
+}
+
+@keyframes blink {
+    0%, 85%, 100% { filter: brightness(1); }
+    88% { filter: brightness(0.7) contrast(1.1); transform: scaleY(0.98); }
+    91% { filter: brightness(1); }
+}
+
+.aiko-live-avatar {
+    width: 240px;
+    height: 240px;
+    object-fit: cover;
+    border-radius: 50%;
+    border: 5px solid #ffffff;
+    box-shadow: 0 12px 35px rgba(255, 105, 180, 0.3);
+    animation: breathe 4s ease-in-out infinite, blink 5s ease-in-out infinite;
+    transition: transform 0.3s ease;
+}
+
+.aiko-live-avatar:hover {
+    transform: scale(1.05);
+}
+</style>
+
+<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%); border-radius: 20px; padding: 30px; height: 100%; min-height: 450px;">
+    <img src="file=aiko.jpg" class="aiko-live-avatar" alt="Aiko Animada">
+    <h3 style="margin-top: 20px; color: #333; font-family: sans-serif; font-weight: 700;">Aiko 🌸</h3>
+    <p style="font-size: 14px; color: #666; text-align: center; margin: 5px 0 0 0;">✨ Lista para conversar contigo</p>
+</div>
+"""
+
 with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
     gr.Markdown("# ✨ Aiko AI Companion")
     
-    gr.ChatInterface(
-        fn=respond
-    )
+    with gr.Row():
+        with gr.Column(scale=1):
+            gr.HTML(aiko_animated_container)
+            
+        with gr.Column(scale=2):
+            gr.ChatInterface(
+                fn=respond
+            )
 
 port = int(os.environ.get("PORT", 7860))
 
