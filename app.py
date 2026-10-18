@@ -14,7 +14,7 @@ AIKO_SYSTEM_INSTRUCTION = (
     "usando emojis kawaii de forma natural."
 )
 
-# Lista estricta de modelos activos en Groq (SIN modelos discontinuados)
+# Lista de modelos activos en Groq
 ACTIVE_GROQ_MODELS = [
     "llama-3.3-70b-versatile",
     "llama-3.1-8b-instant"
@@ -26,7 +26,7 @@ def respond(message, history):
 
     messages = [{"role": "system", "content": AIKO_SYSTEM_INSTRUCTION}]
 
-    # Conversión segura del historial de Gradio
+    # Conversión flexible y segura del historial para evitar errores
     if history:
         for entry in history:
             if isinstance(entry, dict):
@@ -45,7 +45,7 @@ def respond(message, history):
 
     messages.append({"role": "user", "content": message})
 
-    # Intentar llamadas únicamente con los modelos oficiales vigentes
+    # Intentar llamadas con los modelos oficiales vigentes
     last_error = ""
     for model in ACTIVE_GROQ_MODELS:
         try:
@@ -70,9 +70,9 @@ theme = gr.themes.Soft(
 with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
     gr.Markdown("# ✨ Aiko AI Companion")
     
+    # Interfaz limpia sin argumentos incompatibles
     gr.ChatInterface(
-        fn=respond,
-        type="messages"
+        fn=respond
     )
 
 port = int(os.environ.get("PORT", 7860))
