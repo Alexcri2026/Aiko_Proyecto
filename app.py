@@ -15,25 +15,28 @@ AIKO_SYSTEM_INSTRUCTION = (
 )
 
 def get_best_available_model():
-    """Busca dinámicamente un modelo de chat válido en Groq, filtrando los de seguridad"""
+    """Busca dinámicamente un modelo de chat válido en Groq, excluyendo audio, seguridad y embeddings"""
     if not client:
         return "llama-3.3-70b-versatile"
     try:
         models_response = client.models.list()
-        # Filtrar para excluir modelos de seguridad (guard), embeddings, etc.
-        available_ids = [
-            m.id for m in models_response.data 
-            if "guard" not in m.id.lower() and "embed" not in m.id.lower()
-        ]
+        
+        chat_models = []
+        for m in models_response.data:
+            mid = m.id.lower()
+            # Excluir modelos que no sean de chat de texto
+            if any(term in mid for term in ["guard", "embed", "whisper", "tts", "audio", "vision-preview"]):
+                continue
+            chat_models.append(m.id)
         
         # Priorizar modelos de chat oficiales de Llama
         for preferred in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama3-70b-8192", "llama3-8b-8192"]:
-            if preferred in available_ids:
+            if preferred in chat_models:
                 return preferred
                 
-        # Si hay otro disponible que no sea de seguridad, tomar el primero
-        if available_ids:
-            return available_ids[0]
+        # Si hay otro modelo de texto disponible, tomar el primero
+        if chat_models:
+            return chat_models[0]
     except Exception:
         pass
     
@@ -64,7 +67,7 @@ def respond(message, history):
 
     messages.append({"role": "user", "content": message})
 
-    # Obtener un modelo de chat adecuado
+    # Obtener un modelo de chat estrictamente de texto
     model_to_use = get_best_available_model()
 
     try:
@@ -72,7 +75,7 @@ def respond(message, history):
             model=model_to_use,
             messages=messages,
             temperature=0.7,
-            max_tokens=512,  # Ajustado de manera segura
+            max_tokens=512,
         )
         return completion.choices[0].message.content
     except Exception as e:
