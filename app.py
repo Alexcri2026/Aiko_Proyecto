@@ -10,11 +10,18 @@ client = Groq(api_key=api_key) if api_key else None
 MEMORY_FILE = "memory.json"
 
 def load_memory():
-    """Carga los recuerdos desde memory.json"""
+    """Carga la memoria completa (datos del usuario e historial de conversación)"""
     if os.path.exists(MEMORY_FILE):
         try:
             with open(MEMORY_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                if "historial" not in data:
+                    data["historial"] = []
+                if "usuario" not in data:
+                    data["usuario"] = {}
+                if "datos_clave" not in data:
+                    data["datos_clave"] = []
+                return data
         except Exception:
             pass
     return {
@@ -25,11 +32,12 @@ def load_memory():
         "datos_clave": [
             "Es el creador de Aiko",
             "Le gusta la estética 2D"
-        ]
+        ],
+        "historial": []
     }
 
 def save_memory(memory_data):
-    """Guarda los recuerdos actualizados"""
+    """Guarda los recuerdos e historial actualizados"""
     try:
         with open(MEMORY_FILE, "w", encoding="utf-8") as f:
             json.dump(memory_data, f, ensure_ascii=False, indent=2)
@@ -59,7 +67,7 @@ def update_memory_from_user(message):
                 save_memory(memory)
 
 def get_memory_context():
-    """Formatea la memoria para el System Prompt"""
+    """Formatea los datos clave del usuario para el System Prompt"""
     memory = load_memory()
     context = "\n=== MEMORIA PERMANENTE SOBRE EL USUARIO ===\n"
     
@@ -80,8 +88,8 @@ AIKO_BASE_INSTRUCTION = (
     "Tus respuestas deben ser expresivas, detalladas y fluidas. Demuestra curiosidad por lo que te cuenta "
     "el usuario, haz preguntas de seguimiento, comparte opiniones y exprésate con un tono cálido y afable, "
     "usando emojis kawaii de forma natural.\n"
-    "REGLA DE ORO DE MEMORIA: Usa la información de tu 'MEMORIA PERMANENTE SOBRE EL USUARIO' para llamarlo por su nombre "
-    "y recordar sus gustos en tus respuestas siempre que sea oportuno."
+    "REGLA DE ORO DE MEMORIA: Usa la información de tu 'MEMORIA PERMANENTE SOBRE EL USUARIO' y el historial previo "
+    "para mantener la continuidad total de la conversación de forma natural."
 )
 
 ALLOWED_CHAT_MODELS = [
@@ -134,29 +142,21 @@ def respond(message, history):
     if not client:
         return "Error: La clave GROQ_API_KEY no está configurada en Render."
 
-    # Intenta actualizar memoria con el mensaje entrante
+    # 1. Actualiza atributos de usuario si los menciona
     update_memory_from_user(message)
+    
+    memory = load_memory()
 
-    # Inyecta la memoria actualizada en el Prompt de Sistema
+    # 2. Prepara las instrucciones del sistema con los datos persistentes
     full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + get_memory_context()
     messages = [{"role": "system", "content": full_system_instruction}]
 
-    if history:
-        for entry in history:
-            if isinstance(entry, dict):
-                messages.append({
-                    "role": entry.get("role", "user"),
-                    "content": str(entry.get("content", ""))
-                })
-            elif isinstance(entry, (list, tuple)):
-                if len(entry) >= 2:
-                    user_text = entry[0]
-                    bot_text = entry[1]
-                    if user_text:
-                        messages.append({"role": "user", "content": str(user_text)})
-                    if bot_text:
-                        messages.append({"role": "assistant", "content": str(bot_text)})
+    # 3. Carga el historial guardado previamente en el JSON (hasta los últimos 20 mensajes)
+    saved_history = memory.get("historial", [])
+    for entry in saved_history[-20:]:
+        messages.append(entry)
 
+    # 4. Agrega el nuevo mensaje del usuario
     messages.append({"role": "user", "content": message})
     model_to_use = get_best_chat_model()
 
@@ -167,7 +167,15 @@ def respond(message, history):
             temperature=0.7,
             max_tokens=512,
         )
-        return clean_response(completion.choices[0].message.content)
+        bot_response = clean_response(completion.choices[0].message.content)
+
+        # 5. Guardar la nueva interacción en el archivo memory.json
+        memory["historial"].append({"role": "user", "content": message})
+        memory["historial"].append({"role": "assistant", "content": bot_response})
+        save_memory(memory)
+
+        return bot_response
+
     except Exception as e:
         return f"Ocurrió un error con el modelo {model_to_use}: {str(e)}"
 
@@ -224,23 +232,8 @@ aiko_card_html = """
         <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" alt="Aiko 2D">
     </div>
     <h3 style="margin-top: 15px; color: #333; font-family: sans-serif; font-weight: 700; margin-bottom: 2px;">Aiko 🌸</h3>
-    <p style="font-size: 13px; color: #666; text-align: center; margin: 0;">✨ Tu compañera con memoria activa</p>
+    <p style="font-size: 13px; color: #666; text-align: center; margin: 0;">✨ Con memoria de chat continua</p>
 </div>
 """
 
-with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
-    gr.Markdown("# ✨ Aiko AI Companion")
-    
-    with gr.Row():
-        with gr.Column(scale=1, min_width=280):
-            gr.HTML(aiko_card_html)
-            
-        with gr.Column(scale=2):
-            gr.ChatInterface(
-                fn=respond
-            )
-
-port = int(os.environ.get("PORT", 7860))
-
-if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=port)
+with gr.Blocks(theme=theme, title
