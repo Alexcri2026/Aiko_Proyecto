@@ -14,33 +14,34 @@ AIKO_SYSTEM_INSTRUCTION = (
     "usando emojis kawaii de forma natural."
 )
 
-def get_best_available_model():
-    """Busca dinámicamente un modelo de chat válido en Groq, excluyendo audio, seguridad y embeddings"""
+# Lista de modelos de chat comprobados y libres de términos o restricciones especiales
+ALLOWED_CHAT_MODELS = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "llama3-70b-8192",
+    "llama3-8b-8192"
+]
+
+def get_best_chat_model():
+    """Selecciona el mejor modelo de chat activo en la cuenta sin caer en modelos TTS, Audio o Guard"""
     if not client:
-        return "llama-3.3-70b-versatile"
+        return ALLOWED_CHAT_MODELS[0]
+    
     try:
         models_response = client.models.list()
+        active_ids = [m.id for m in models_response.data]
         
-        chat_models = []
-        for m in models_response.data:
-            mid = m.id.lower()
-            # Excluir modelos que no sean de chat de texto
-            if any(term in mid for term in ["guard", "embed", "whisper", "tts", "audio", "vision-preview"]):
-                continue
-            chat_models.append(m.id)
-        
-        # Priorizar modelos de chat oficiales de Llama
-        for preferred in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama3-70b-8192", "llama3-8b-8192"]:
-            if preferred in chat_models:
-                return preferred
-                
-        # Si hay otro modelo de texto disponible, tomar el primero
-        if chat_models:
-            return chat_models[0]
+        # Recorremos en orden estricto de preferencia
+        for model in ALLOWED_CHAT_MODELS:
+            if model in active_ids:
+                return model
     except Exception:
         pass
-    
-    return "llama-3.3-70b-versatile"
+
+    # Si falla la consulta, usar por defecto el principal
+    return ALLOWED_CHAT_MODELS[0]
 
 def respond(message, history):
     if not client:
@@ -67,8 +68,8 @@ def respond(message, history):
 
     messages.append({"role": "user", "content": message})
 
-    # Obtener un modelo de chat estrictamente de texto
-    model_to_use = get_best_available_model()
+    # Seleccionar un modelo seguro
+    model_to_use = get_best_chat_model()
 
     try:
         completion = client.chat.completions.create(
