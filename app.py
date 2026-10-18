@@ -17,42 +17,71 @@ def load_memory():
                 return json.load(f)
         except Exception:
             pass
-    return {"usuario": {}, "datos_clave": []}
+    return {
+        "usuario": {
+            "nombre": "Alex",
+            "gustos": "Programación, desarrollo de IA, estética anime"
+        },
+        "datos_clave": [
+            "Es el creador de Aiko",
+            "Le gusta la estética 2D"
+        ]
+    }
 
 def save_memory(memory_data):
-    """Guarda los recuerdos en memory.json"""
+    """Guarda los recuerdos actualizados"""
     try:
         with open(MEMORY_FILE, "w", encoding="utf-8") as f:
             json.dump(memory_data, f, ensure_ascii=False, indent=2)
     except Exception as e:
         print(f"Error al guardar memoria: {e}")
 
-def get_memory_context():
-    """Convierte la memoria JSON en un texto entendible para el prompt del sistema"""
+def update_memory_from_user(message):
+    """Detecta de forma sencilla si el usuario menciona su nombre o gustos"""
     memory = load_memory()
-    context = "\n--- MEMORIA A LARGO PLAZO SOBRE EL USUARIO ---\n"
+    msg_lower = message.lower()
+    
+    # Detección simple de nombre
+    if "me llamo" in msg_lower or "mi nombre es" in msg_lower:
+        match = re.search(r'(?:me llamo|mi nombre es)\s+([a-zA-ZáéíóúÁÉÍÓÚñÑ]+)', message, re.IGNORECASE)
+        if match:
+            nombre = match.group(1).capitalize()
+            memory["usuario"]["nombre"] = nombre
+            save_memory(memory)
+            
+    # Detección de gustos
+    if "me gusta" in msg_lower or "me encanta" in msg_lower:
+        match = re.search(r'(?:me gusta|me encanta)\s+(.+)', message, re.IGNORECASE)
+        if match:
+            gusto = match.group(1).strip()
+            if gusto and gusto not in memory["datos_clave"]:
+                memory["datos_clave"].append(f"Le gusta {gusto}")
+                save_memory(memory)
+
+def get_memory_context():
+    """Formatea la memoria para el System Prompt"""
+    memory = load_memory()
+    context = "\n=== MEMORIA PERMANENTE SOBRE EL USUARIO ===\n"
     
     if memory.get("usuario"):
         for k, v in memory["usuario"].items():
             context += f"- {k.capitalize()}: {v}\n"
             
     if memory.get("datos_clave"):
-        context += "- Cosas importantes recordadas:\n"
+        context += "- Datos importantes:\n"
         for item in memory["datos_clave"]:
             context += f"  * {item}\n"
             
-    if not memory.get("usuario") and not memory.get("datos_clave"):
-        context += "(Aún no hay datos guardados. Aprende sobre el usuario durante la charla).\n"
-        
-    context += "----------------------------------------------\n"
+    context += "=========================================="
     return context
 
 AIKO_BASE_INSTRUCTION = (
     "Eres Aiko, una compañera virtual de anime en 2D dulce, atenta, empática y alegre. "
     "Tus respuestas deben ser expresivas, detalladas y fluidas. Demuestra curiosidad por lo que te cuenta "
     "el usuario, haz preguntas de seguimiento, comparte opiniones y exprésate con un tono cálido y afable, "
-    "usando emojis kawaii de forma natural. "
-    "Usa tu memoria a largo plazo para personalizar tus respuestas sin mencionarla explícitamente a menos que sea natural."
+    "usando emojis kawaii de forma natural.\n"
+    "REGLA DE ORO DE MEMORIA: Usa la información de tu 'MEMORIA PERMANENTE SOBRE EL USUARIO' para llamarlo por su nombre "
+    "y recordar sus gustos en tus respuestas siempre que sea oportuno."
 )
 
 ALLOWED_CHAT_MODELS = [
@@ -105,7 +134,10 @@ def respond(message, history):
     if not client:
         return "Error: La clave GROQ_API_KEY no está configurada en Render."
 
-    # Se combina la instrucción base con la memoria del JSON actualizada
+    # Intenta actualizar memoria con el mensaje entrante
+    update_memory_from_user(message)
+
+    # Inyecta la memoria actualizada en el Prompt de Sistema
     full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + get_memory_context()
     messages = [{"role": "system", "content": full_system_instruction}]
 
@@ -192,12 +224,12 @@ aiko_card_html = """
         <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" alt="Aiko 2D">
     </div>
     <h3 style="margin-top: 15px; color: #333; font-family: sans-serif; font-weight: 700; margin-bottom: 2px;">Aiko 🌸</h3>
-    <p style="font-size: 13px; color: #666; text-align: center; margin: 0;">✨ Tu compañera con memoria inteligente</p>
+    <p style="font-size: 13px; color: #666; text-align: center; margin: 0;">✨ Tu compañera con memoria activa</p>
 </div>
 """
 
 with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
-    gr.Markdown("# ✨ Aiko AI Companion - Con Memoria JSON")
+    gr.Markdown("# ✨ Aiko AI Companion")
     
     with gr.Row():
         with gr.Column(scale=1, min_width=280):
