@@ -14,6 +14,27 @@ AIKO_SYSTEM_INSTRUCTION = (
     "usando emojis kawaii de forma natural."
 )
 
+def get_best_available_model():
+    """Consulta automáticamente a Groq qué modelos están activos en tu cuenta"""
+    if not client:
+        return "llama-3.3-70b-versatile"
+    try:
+        models_response = client.models.list()
+        available_ids = [m.id for m in models_response.data]
+        
+        # Priorizar modelos de Llama en orden de preferencia
+        for preferred in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama3-70b-8192", "llama3-8b-8192"]:
+            if preferred in available_ids:
+                return preferred
+                
+        # Si hay alguno disponible en la lista, tomar el primero
+        if available_ids:
+            return available_ids[0]
+    except Exception:
+        pass
+    
+    return "llama-3.3-70b-versatile"
+
 def respond(message, history):
     if not client:
         return "Error: La clave GROQ_API_KEY no está configurada en Render."
@@ -39,17 +60,19 @@ def respond(message, history):
 
     messages.append({"role": "user", "content": message})
 
+    # Obtener dinámicamente el modelo activo en tu cuenta
+    model_to_use = get_best_available_model()
+
     try:
-        # Llamada directa al modelo principal y activo de Groq
         completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=model_to_use,
             messages=messages,
             temperature=0.7,
             max_tokens=1024,
         )
         return completion.choices[0].message.content
     except Exception as e:
-        return f"Ocurrió un error con Groq: {str(e)}"
+        return f"Ocurrió un error con el modelo {model_to_use}: {str(e)}"
 
 theme = gr.themes.Soft(
     primary_hue="indigo",
