@@ -3,51 +3,67 @@ import json
 import re
 import gradio as gr
 from groq import Groq
+from supabase import create_client, Client
 
+# Configuración de Clientes
 api_key = os.environ.get("GROQ_API_KEY")
 client = Groq(api_key=api_key) if api_key else None
 
-MEMORY_FILE = "memory.json"
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if (SUPABASE_URL and SUPABASE_KEY) else None
+
+DEFAULT_MEMORY = {
+    "usuario": {
+        "nombre": "Alex",
+        "gustos": "Programación, desarrollo de IA, estética anime"
+    },
+    "datos_clave": [
+        "Es el creador de Aiko",
+        "Le gusta la estética 2D"
+    ],
+    "historial": []
+}
 
 def load_memory():
-    """Carga la memoria desde memory.json con validaciones de seguridad"""
-    default_memory = {
-        "usuario": {
-            "nombre": "Alex",
-            "gustos": "Programación, desarrollo de IA, estética anime"
-        },
-        "datos_clave": [
-            "Es el creador de Aiko",
-            "Le gusta la estética 2D"
-        ],
-        "historial": []
-    }
-    if os.path.exists(MEMORY_FILE):
-        try:
-            with open(MEMORY_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, dict):
-                    if "historial" not in data or not isinstance(data["historial"], list):
-                        data["historial"] = []
-                    if "usuario" not in data or not isinstance(data["usuario"], dict):
-                        data["usuario"] = default_memory["usuario"]
-                    if "datos_clave" not in data or not isinstance(data["datos_clave"], list):
-                        data["datos_clave"] = default_memory["datos_clave"]
-                    return data
-        except Exception:
-            pass
-    return default_memory
+    """Carga la memoria desde la base de datos Supabase"""
+    if not supabase:
+        print("Advertencia: Supabase no está configurado.")
+        return DEFAULT_MEMORY
+
+    try:
+        response = supabase.table("aiko_memory").select("data").eq("id", 1).execute()
+        if response.data and len(response.data) > 0:
+            data = response.data[0]["data"]
+            if isinstance(data, dict):
+                if "historial" not in data or not isinstance(data["historial"], list):
+                    data["historial"] = []
+                if "usuario" not in data or not isinstance(data["usuario"], dict):
+                    data["usuario"] = DEFAULT_MEMORY["usuario"]
+                if "datos_clave" not in data or not isinstance(data["datos_clave"], list):
+                    data["datos_clave"] = DEFAULT_MEMORY["datos_clave"]
+                return data
+    except Exception as e:
+        print(f"Error al cargar memoria desde Supabase: {e}")
+
+    return DEFAULT_MEMORY
 
 def save_memory(memory_data):
-    """Guarda los recuerdos e historial de forma segura"""
+    """Guarda la memoria actualizada directamente en Supabase"""
+    if not supabase:
+        print("Advertencia: No se pudo guardar en Supabase (falta configuración).")
+        return
+
     try:
-        with open(MEMORY_FILE, "w", encoding="utf-8") as f:
-            json.dump(memory_data, f, ensure_ascii=False, indent=2)
+        supabase.table("aiko_memory").update({
+            "data": memory_data
+        }).eq("id", 1).execute()
     except Exception as e:
-        print(f"Error al guardar memoria: {e}")
+        print(f"Error al guardar memoria en Supabase: {e}")
 
 def extract_key_facts_with_ai(user_message, model_name):
-    """Usa la IA para extraer datos clave o hechos relevantes de cualquier mensaje"""
+    """Usa la IA para extraer datos clave o hechos relevantes en segundo plano"""
     if not client or not user_message.strip():
         return
 
@@ -71,24 +87,24 @@ def extract_key_facts_with_ai(user_message, model_name):
         
         if fact and "NINGUNO" not in fact.upper():
             memory = load_memory()
-            if fact not in memory["datos_clave"]:
+            if fact not in memory.get("datos_clave", []):
                 memory["datos_clave"].append(fact)
                 save_memory(memory)
     except Exception as e:
         print(f"Error extrayendo memoria con IA: {e}")
 
 def get_memory_context():
-    """Formatea los datos clave para el System Prompt"""
+    """Formatea la memoria activa para el System Prompt"""
     memory = load_memory()
     context = "\n=== LO QUE RECUERDAS SOBRE EL USUARIO ===\n"
     
     if memory.get("usuario"):
-        for k, v in memory["usuario"].items():
+        for k, v in memory.get("usuario", {}).items():
             context += f"- {k.capitalize()}: {v}\n"
             
     if memory.get("datos_clave"):
         context += "- Hechos recordados:\n"
-        for item in memory["datos_clave"]:
+        for item in memory.get("datos_clave", []):
             context += f"  * {item}\n"
             
     context += "=========================================="
@@ -160,27 +176,25 @@ def respond(message, history):
 
     model_to_use = get_best_chat_model()
 
-    # Extrae datos clave en segundo plano
+    # 1. Extraer datos clave en segundo plano
     extract_key_facts_with_ai(message, model_to_use)
     
     memory = load_memory()
 
+    # 2. Construir el prompt con la instrucción base y la memoria
     full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + get_memory_context()
     messages = [{"role": "system", "content": full_system_instruction}]
 
-    if history:
-        for item in history:
-            if isinstance(item, dict):
-                r = item.get("role") or item.get("rol") or "user"
-                c = item.get("content") or item.get("contenido") or ""
-                if c:
-                    messages.append({"role": r, "content": str(c)})
-            elif isinstance(item, (list, tuple)) and len(item) >= 2:
-                if item[0]:
-                    messages.append({"role": "user", "content": str(item[0])})
-                if item[1]:
-                    messages.append({"role": "assistant", "content": str(item[1])})
+    # 3. Cargar el historial desde Supabase
+    saved_history = memory.get("historial", [])
+    for entry in saved_history[-20:]:
+        if isinstance(entry, dict):
+            r = entry.get("role") or entry.get("rol") or "user"
+            c = entry.get("content") or entry.get("contenido") or ""
+            if c:
+                messages.append({"role": r, "content": str(c)})
 
+    # 4. Agregar mensaje actual
     messages.append({"role": "user", "content": str(message)})
 
     try:
@@ -192,6 +206,7 @@ def respond(message, history):
         )
         bot_response = clean_response(completion.choices[0].message.content)
 
+        # 5. Actualizar y guardar memoria permanente en Supabase
         memory["historial"].append({"role": "user", "content": message})
         memory["historial"].append({"role": "assistant", "content": bot_response})
         save_memory(memory)
