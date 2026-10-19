@@ -10,12 +10,12 @@ client = Groq(api_key=api_key) if api_key else None
 MEMORY_FILE = "memory.json"
 
 def load_memory():
-    """Carga la memoria desde memory.json"""
+    """Carga la memoria desde memory.json asegurando el formato de diccionarios"""
     if os.path.exists(MEMORY_FILE):
         try:
             with open(MEMORY_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                if "historial" not in data:
+                if "historial" not in data or not isinstance(data["historial"], list):
                     data["historial"] = []
                 if "usuario" not in data:
                     data["usuario"] = {}
@@ -147,23 +147,9 @@ def clean_response(text):
     cleaned = re.sub(r'(\b[:\s]*text)+$', '', cleaned)
     return cleaned.strip()
 
-def format_history_to_tuples(history_list):
-    """Convierte el historial de diccionarios de Groq a formato de tuplas [(user, assistant), ...] para Gradio"""
-    formatted = []
-    pending_user = None
-    for entry in history_list:
-        role = entry.get("role")
-        content = entry.get("content")
-        if role == "user":
-            pending_user = content
-        elif role == "assistant" and pending_user is not None:
-            formatted.append((pending_user, content))
-            pending_user = None
-    return formatted
-
 def respond(message, chat_history):
     if not client:
-        yield chat_history + [[message, "Error: La clave GROQ_API_KEY no está configurada en Render."]]
+        yield chat_history + [{"role": "user", "content": message}, {"role": "assistant", "content": "Error: La clave GROQ_API_KEY no está configurada en Render."}]
         return
 
     if not message.strip():
@@ -183,11 +169,12 @@ def respond(message, chat_history):
 
     saved_history = memory.get("historial", [])
     for entry in saved_history[-20:]:
-        messages.append(entry)
+        if isinstance(entry, dict) and "role" in entry and "content" in entry:
+            messages.append(entry)
 
     messages.append({"role": "user", "content": message})
 
-    updated_chat = chat_history + [[message, ""]]
+    updated_chat = chat_history + [{"role": "user", "content": message}, {"role": "assistant", "content": ""}]
     yield updated_chat
 
     try:
@@ -204,12 +191,12 @@ def respond(message, chat_history):
         memory["historial"].append({"role": "assistant", "content": bot_response})
         save_memory(memory)
 
-        updated_chat[-1][1] = bot_response
+        updated_chat[-1]["content"] = bot_response
         yield updated_chat
 
     except Exception as e:
         err_msg = f"Ocurrió un error con el modelo {model_to_use}: {str(e)}"
-        updated_chat[-1][1] = err_msg
+        updated_chat[-1]["content"] = err_msg
         yield updated_chat
 
 theme = gr.themes.Soft(
@@ -273,14 +260,14 @@ with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
     gr.Markdown("# ✨ Aiko AI Companion")
     
     initial_memory = load_memory()
-    initial_chat_history = format_history_to_tuples(initial_memory.get("historial", []))
+    initial_chat_history = initial_memory.get("historial", [])
 
     with gr.Row():
         with gr.Column(scale=1, min_width=280):
             gr.HTML(aiko_card_html)
             
         with gr.Column(scale=2):
-            chatbot = gr.Chatbot(value=initial_chat_history, height=450, label="Conversación con Aiko")
+            chatbot = gr.Chatbot(value=initial_chat_history, height=450, label="Conversación con Aiko", type="messages")
             msg = gr.Textbox(placeholder="Escribe un mensaje a Aiko...", label="", lines=1)
             
             msg.submit(respond, inputs=[msg, chatbot], outputs=[chatbot]).then(lambda: "", outputs=[msg])
