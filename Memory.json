@@ -1,10 +1,11 @@
 {
   "usuario": {
     "nombre": "Alex",
-    "gustos": "Programación, desarrollo de IA, proyectos anime"
+    "gustos": "Programación, desarrollo de IA, estética anime"
   },
   "datos_clave": [
-    "Es el creador y desarrollador de Aiko",
-    "Le gusta la estética anime 2D kawaii y el diseño cuidado"
-  ]
+    "Es el creador de Aiko",
+    "Le gusta la estética 2D"
+  ],
+  "historial": []
 }
