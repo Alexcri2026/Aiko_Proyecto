@@ -10,7 +10,7 @@ client = Groq(api_key=api_key) if api_key else None
 MEMORY_FILE = "memory.json"
 
 def load_memory():
-    """Carga la memoria completa (datos del usuario e historial de conversación)"""
+    """Carga la memoria desde memory.json"""
     if os.path.exists(MEMORY_FILE):
         try:
             with open(MEMORY_FILE, "r", encoding="utf-8") as f:
@@ -44,27 +44,36 @@ def save_memory(memory_data):
     except Exception as e:
         print(f"Error al guardar memoria: {e}")
 
-def update_memory_from_user(message):
-    """Detecta de forma sencilla si el usuario menciona su nombre o gustos"""
-    memory = load_memory()
-    msg_lower = message.lower()
-    
-    # Detección simple de nombre
-    if "me llamo" in msg_lower or "mi nombre es" in msg_lower:
-        match = re.search(r'(?:me llamo|mi nombre es)\s+([a-zA-ZáéíóúÁÉÍÓÚñÑ]+)', message, re.IGNORECASE)
-        if match:
-            nombre = match.group(1).capitalize()
-            memory["usuario"]["nombre"] = nombre
-            save_memory(memory)
-            
-    # Detección de gustos
-    if "me gusta" in msg_lower or "me encanta" in msg_lower:
-        match = re.search(r'(?:me gusta|me encanta)\s+(.+)', message, re.IGNORECASE)
-        if match:
-            gusto = match.group(1).strip()
-            if gusto and gusto not in memory["datos_clave"]:
-                memory["datos_clave"].append(f"Le gusta {gusto}")
+def extract_key_facts_with_ai(user_message, model_name):
+    """Usa la IA para extraer datos clave o hechos relevantes de cualquier mensaje del usuario"""
+    if not client or not user_message.strip():
+        return
+
+    extraction_prompt = (
+        "Analiza el siguiente mensaje del usuario. Determina si menciona algún dato personal, preferencia, "
+        "hecho sobre su vida, gustos, alimentos, mascotas, planes o detalles que una compañera virtual deba recordar.\n"
+        "Si hay algún dato relevante, extráelo en una frase corta e informativa (ejemplo: 'Le gustan las manzanas', 'Mencionó que comió mango hoy').\n"
+        "Si NO hay ningún dato relevante para recordar a largo plazo, responde ÚNICAMENTE con la palabra: NINGUNO.\n\n"
+        f"Mensaje del usuario: \"{user_message}\""
+    )
+
+    try:
+        completion = client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "system", "content": "Eres un extractor de datos clave en español preciso y conciso."},
+                      {"role": "user", "content": extraction_prompt}],
+            temperature=0.2,
+            max_tokens=100,
+        )
+        fact = completion.choices[0].message.content.strip()
+        
+        if fact and "NINGUNO" not in fact.upper():
+            memory = load_memory()
+            if fact not in memory["datos_clave"]:
+                memory["datos_clave"].append(fact)
                 save_memory(memory)
+    except Exception as e:
+        print(f"Error extrayendo memoria con IA: {e}")
 
 def get_memory_context():
     """Formatea los datos clave del usuario para el System Prompt"""
@@ -76,7 +85,7 @@ def get_memory_context():
             context += f"- {k.capitalize()}: {v}\n"
             
     if memory.get("datos_clave"):
-        context += "- Datos importantes:\n"
+        context += "- Datos e historias recordadas:\n"
         for item in memory["datos_clave"]:
             context += f"  * {item}\n"
             
@@ -88,8 +97,8 @@ AIKO_BASE_INSTRUCTION = (
     "Tus respuestas deben ser expresivas, detalladas y fluidas. Demuestra curiosidad por lo que te cuenta "
     "el usuario, haz preguntas de seguimiento, comparte opiniones y exprésate con un tono cálido y afable, "
     "usando emojis kawaii de forma natural.\n"
-    "REGLA DE ORO DE MEMORIA: Usa la información de tu 'MEMORIA PERMANENTE SOBRE EL USUARIO' y el historial previo "
-    "para mantener la continuidad total de la conversación de forma natural."
+    "REGLA DE ORO DE MEMORIA: Usa siempre la información guardada en tu 'MEMORIA PERMANENTE SOBRE EL USUARIO' "
+    "para recordar de forma fluida y natural hechos, comidas, detalles y preferencias que te haya contado antes."
 )
 
 ALLOWED_CHAT_MODELS = [
@@ -138,27 +147,48 @@ def clean_response(text):
     cleaned = re.sub(r'(\b[:\s]*text)+$', '', cleaned)
     return cleaned.strip()
 
-def respond(message, history):
-    if not client:
-        return "Error: La clave GROQ_API_KEY no está configurada en Render."
+def format_history_for_chatbot(history_list):
+    """Convierte el formato de roles a tuplas para gr.Chatbot"""
+    formatted = []
+    pending_user = None
+    for entry in history_list:
+        role = entry.get("role")
+        content = entry.get("content")
+        if role == "user":
+            pending_user = content
+        elif role == "assistant" and pending_user is not None:
+            formatted.append((pending_user, content))
+            pending_user = None
+    return formatted
 
-    # 1. Actualiza atributos de usuario si los menciona
-    update_memory_from_user(message)
+def respond(message, chat_history):
+    if not client:
+        yield chat_history + [[message, "Error: La clave GROQ_API_KEY no está configurada en Render."]]
+        return
+
+    if not message.strip():
+        yield chat_history
+        return
+
+    model_to_use = get_best_chat_model()
+
+    # 1. Extracción automática inteligente de datos usando la IA
+    extract_key_facts_with_ai(message, model_to_use)
     
     memory = load_memory()
 
-    # 2. Prepara las instrucciones del sistema con los datos persistentes
+    # 2. Configura mensajes con memoria inyectada
     full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + get_memory_context()
     messages = [{"role": "system", "content": full_system_instruction}]
 
-    # 3. Carga el historial guardado previamente en el JSON (hasta los últimos 20 mensajes)
     saved_history = memory.get("historial", [])
     for entry in saved_history[-20:]:
         messages.append(entry)
 
-    # 4. Agrega el nuevo mensaje del usuario
     messages.append({"role": "user", "content": message})
-    model_to_use = get_best_chat_model()
+
+    updated_chat = chat_history + [[message, ""]]
+    yield updated_chat
 
     try:
         completion = client.chat.completions.create(
@@ -169,15 +199,18 @@ def respond(message, history):
         )
         bot_response = clean_response(completion.choices[0].message.content)
 
-        # 5. Guardar la nueva interacción en el archivo memory.json
+        # 3. Guardar conversación en memoria
         memory["historial"].append({"role": "user", "content": message})
         memory["historial"].append({"role": "assistant", "content": bot_response})
         save_memory(memory)
 
-        return bot_response
+        updated_chat[-1][1] = bot_response
+        yield updated_chat
 
     except Exception as e:
-        return f"Ocurrió un error con el modelo {model_to_use}: {str(e)}"
+        err_msg = f"Ocurrió un error con el modelo {model_to_use}: {str(e)}"
+        updated_chat[-1][1] = err_msg
+        yield updated_chat
 
 theme = gr.themes.Soft(
     primary_hue="indigo",
@@ -232,8 +265,27 @@ aiko_card_html = """
         <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" alt="Aiko 2D">
     </div>
     <h3 style="margin-top: 15px; color: #333; font-family: sans-serif; font-weight: 700; margin-bottom: 2px;">Aiko 🌸</h3>
-    <p style="font-size: 13px; color: #666; text-align: center; margin: 0;">✨ Con memoria de chat continua</p>
+    <p style="font-size: 13px; color: #666; text-align: center; margin: 0;">✨ Con extractor de memoria por IA</p>
 </div>
 """
 
-with gr.Blocks(theme=theme, title
+with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
+    gr.Markdown("# ✨ Aiko AI Companion")
+    
+    initial_memory = load_memory()
+    initial_chat_history = format_history_for_chatbot(initial_memory.get("historial", []))
+
+    with gr.Row():
+        with gr.Column(scale=1, min_width=280):
+            gr.HTML(aiko_card_html)
+            
+        with gr.Column(scale=2):
+            chatbot = gr.Chatbot(value=initial_chat_history, height=450, label="Conversación con Aiko")
+            msg = gr.Textbox(placeholder="Escribe un mensaje a Aiko...", label="", lines=1)
+            
+            msg.submit(respond, inputs=[msg, chatbot], outputs=[chatbot]).then(lambda: "", outputs=[msg])
+
+port = int(os.environ.get("PORT", 7860))
+
+if __name__ == "__main__":
+    demo.launch(server_name="0.0.0.0", server_port=port)
