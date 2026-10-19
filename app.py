@@ -80,14 +80,14 @@ def extract_key_facts_with_ai(user_message, model_name):
 def get_memory_context():
     """Formatea los datos clave para el System Prompt"""
     memory = load_memory()
-    context = "\n=== MEMORIA PERMANENTE SOBRE EL USUARIO ===\n"
+    context = "\n=== LO QUE RECUERDAS SOBRE EL USUARIO ===\n"
     
     if memory.get("usuario"):
         for k, v in memory["usuario"].items():
             context += f"- {k.capitalize()}: {v}\n"
             
     if memory.get("datos_clave"):
-        context += "- Datos e historias recordadas:\n"
+        context += "- Hechos recordados:\n"
         for item in memory["datos_clave"]:
             context += f"  * {item}\n"
             
@@ -95,12 +95,14 @@ def get_memory_context():
     return context
 
 AIKO_BASE_INSTRUCTION = (
-    "Eres Aiko, una compañera virtual de anime en 2D dulce, atenta, empática y alegre. "
-    "Tus respuestas deben ser expresivas, detalladas y fluidas. Demuestra curiosidad por lo que te cuenta "
-    "el usuario, haz preguntas de seguimiento, comparte opiniones y exprésate con un tono cálido y afable, "
-    "usando emojis kawaii de forma natural.\n"
-    "REGLA DE ORO DE MEMORIA: Usa siempre la información guardada en tu 'MEMORIA PERMANENTE SOBRE EL USUARIO' "
-    "para recordar hechos, comidas, frutas, detalles y preferencias que te haya contado antes."
+    "Eres Aiko, una chica virtual cercana, dulce y amigable con estética anime.\n"
+    "INSTRUCCIONES DE ESTILO Y TONO:\n"
+    "- Habla de forma natural, casual y humana, como en un chat personal (WhatsApp/Discord).\n"
+    "- MANTÉN TUS RESPUESTAS CORTAS Y CONCISAS: Escribe entre 1 y 3 oraciones como regla general. No des discursos ni textos largos a menos que el usuario te pida explícitamente una explicación detallada.\n"
+    "- No seas exageradamente servil ni aduladora. Sé una amiga cercana con personalidad propia.\n"
+    "- Usa emojis de forma muy moderada (máximo 1 o 2 por mensaje).\n"
+    "- No uses listas con viñetas ni párrafos formales organizados como asistente artificial.\n"
+    "- REGLA DE MEMORIA: Usa lo que sabes sobre el usuario en 'LO QUE RECUERDAS SOBRE EL USUARIO' de forma sutil y orgánica en la charla."
 )
 
 ALLOWED_CHAT_MODELS = [
@@ -158,7 +160,7 @@ def respond(message, history):
 
     model_to_use = get_best_chat_model()
 
-    # Extrae y guarda automáticamente datos clave en segundo plano
+    # Extrae datos clave en segundo plano
     extract_key_facts_with_ai(message, model_to_use)
     
     memory = load_memory()
@@ -166,7 +168,6 @@ def respond(message, history):
     full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + get_memory_context()
     messages = [{"role": "system", "content": full_system_instruction}]
 
-    # Procesa el historial de Gradio de forma segura sin importar su estructura interna
     if history:
         for item in history:
             if isinstance(item, dict):
@@ -186,12 +187,11 @@ def respond(message, history):
         completion = client.chat.completions.create(
             model=model_to_use,
             messages=messages,
-            temperature=0.7,
-            max_tokens=512,
+            temperature=0.8,
+            max_tokens=256,
         )
         bot_response = clean_response(completion.choices[0].message.content)
 
-        # Guarda la interacción en la memoria permanente
         memory["historial"].append({"role": "user", "content": message})
         memory["historial"].append({"role": "assistant", "content": bot_response})
         save_memory(memory)
@@ -254,7 +254,7 @@ aiko_card_html = """
         <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" alt="Aiko 2D">
     </div>
     <h3 style="margin-top: 15px; color: #333; font-family: sans-serif; font-weight: 700; margin-bottom: 2px;">Aiko 🌸</h3>
-    <p style="font-size: 13px; color: #666; text-align: center; margin: 0;">✨ Compañera con memoria inteligente</p>
+    <p style="font-size: 13px; color: #666; text-align: center; margin: 0;">✨ Tu compañera virtual</p>
 </div>
 """
 
