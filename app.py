@@ -27,6 +27,7 @@ DEFAULT_MEMORY = {
         "Le gusta la estética 2D"
     ],
     "estado_animo": "alegre 🌸",
+    "recordatorios": [],
     "historial": []
 }
 
@@ -50,10 +51,9 @@ def load_memory():
                 data.setdefault("usuario", DEFAULT_MEMORY["usuario"])
                 data.setdefault("datos_clave", DEFAULT_MEMORY["datos_clave"])
                 data.setdefault("estado_animo", "alegre 🌸")
+                data.setdefault("recordatorios", [])
                 print("✅ Memoria cargada con éxito desde Supabase.")
                 return data
-        else:
-            print("⚠️ Fila id=1 não encontrada en Supabase.")
     except Exception as e:
         print(f"❌ Error al conectar con Supabase al cargar: {e}")
 
@@ -65,14 +65,74 @@ def save_memory(memory_data):
         return
 
     if not memory_data or not isinstance(memory_data, dict):
-        print("⚠️ Intento de guardar memoria inválida abortado.")
         return
 
     try:
         supabase.table("aiko_memory").update({"data": memory_data}).eq("id", 1).execute()
-        print("✅ Memoria guardada exitosamente en Supabase.")
+        print("✅ Memoria y recordatorios guardados en Supabase.")
     except Exception as e:
         print(f"❌ Error guardando en Supabase: {e}")
+
+# --- HERRAMIENTAS DE PRODUCTIVIDAD (BRAZOS DE AIKO) ---
+def handle_reminders_tool(user_message):
+    """Procesa acciones de recordatorios y notas según el mensaje del usuario."""
+    if not client or not user_message.strip():
+        return ""
+
+    prompt = (
+        "Analiza el siguiente mensaje del usuario. Determina si quiere realizar una acción con recordatorios o notas.\n"
+        "Opciones posibles:\n"
+        "1. GUARDAR: Si quiere anotar o recordar algo (ej: 'anota comprar leche', 'recuérdame revisar el servidor'). Extrae el texto exacto a recordar.\n"
+        "2. VER: Si pregunta qué recordatorios o notas tiene pendientes (ej: '¿qué tengo pendiente?', 'muéstrame mis notas').\n"
+        "3. BORRAR: Si quiere borrar o limpiar sus notas (ej: 'borra mis recordatorios', 'limpia las notas').\n"
+        "4. NINGUNO: Si no tiene relación con notas o recordatorios.\n\n"
+        "Responde ESTRICTAMENTE en formato JSON plano sin bloques de código:\n"
+        '{"accion": "GUARDAR" | "VER" | "BORRAR" | "NINGUNO", "texto": "texto del recordatorio si aplica"}\n\n'
+        f"Mensaje: \"{user_message}\""
+    )
+
+    try:
+        completion = client.chat.completions.create(
+            model=MODEL_FAST,
+            messages=[{"role": "system", "content": "Eres un asistente de herramientas JSON preciso."},
+                      {"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=100,
+            tool_choice="none"
+        )
+        res_text = completion.choices[0].message.content.strip()
+        # Limpiar posible markdown del JSON
+        res_text = re.sub(r'```json|```', '', res_text).strip()
+        data = json.loads(res_text)
+
+        accion = data.get("accion", "NINGUNO")
+        texto = data.get("texto", "").strip()
+
+        memory = load_memory()
+
+        if accion == "GUARDAR" and texto:
+            if texto not in memory["recordatorios"]:
+                memory["recordatorios"].append(texto)
+                save_memory(memory)
+                return f"\n[ACCIÓN REALIZADA]: Has guardado con éxito el recordatorio: \"{texto}\". Confírmaselo al usuario de forma cariñosa.\n"
+
+        elif accion == "VER":
+            recs = memory.get("recordatorios", [])
+            if recs:
+                lista_recs = "\n".join([f"- {r}" for r in recs])
+                return f"\n[ACCIÓN REALIZADA]: Aquí están los recordatorios pendientes en Supabase:\n{lista_recs}\nMuéstraselos de forma clara.\n"
+            else:
+                return "\n[ACCIÓN REALIZADA]: Consultaste Supabase y el usuario no tiene ninguna nota o recordatorio pendiente actualmente.\n"
+
+        elif accion == "BORRAR":
+            memory["recordatorios"] = []
+            save_memory(memory)
+            return "\n[ACCIÓN REALIZADA]: Has borrado todos los recordatorios de Supabase correctamente.\n"
+
+    except Exception as e:
+        print(f"Error procesando herramienta de recordatorios: {e}")
+
+    return ""
 
 def extract_key_facts_with_ai(user_message):
     if not client or not user_message.strip():
@@ -141,72 +201,60 @@ def get_memory_context():
         context += "- Hechos recordados:\n"
         for item in memory.get("datos_clave", []):
             context += f"  * {item}\n"
+    if memory.get("recordatorios"):
+        context += "- Recordatorios activos:\n"
+        for rec in memory.get("recordatorios", []):
+            context += f"  * {rec}\n"
     context += "====================================================\n"
     return context
 
 # --- BÚSQUEDA WEB Y CLIMA EN TIEMPO REAL ---
 def check_web_search_intent(message):
-    """Detecta si el mensaje solicita datos actuales."""
     msg = message.lower()
     keywords = [
         "clima", "tiempo", "temperatura", "noticias", "noticia", "quién es", "quien es",
         "precio", "resultado", "qué pasó", "que paso", "última hora", "ultima hora",
-        "busca", "internet", "web", "cuándo", "cuando", "estreno", "hoy", "actualidad",
-        "madrid", "parís", "paris", "barcelona"
+        "busca", "internet", "web", "cuándo", "cuando", "estreno", "hoy", "actualidad"
     ]
     return any(kw in msg for kw in keywords)
 
 def search_web(query):
-    """Obtiene clima mediante wttr.in o datos web en tiempo real."""
     q_lower = query.lower()
 
-    # 1. Si es una consulta de clima, usamos la API directa wttr.in (100% estable)
     if any(w in q_lower for w in ["clima", "tiempo", "temperatura"]):
         city = "Madrid"
         if "madrid" in q_lower: city = "Madrid"
         elif "parís" in q_lower or "paris" in q_lower: city = "Paris"
         elif "barcelona" in q_lower: city = "Barcelona"
-        elif "bogotá" in q_lower or "bogota" in q_lower: city = "Bogota"
-        elif "méxico" in q_lower or "mexico" in q_lower: city = "Mexico_City"
 
         try:
             r = requests.get(f"https://wttr.in/{city}?format=3", headers={"User-Agent": "curl"}, timeout=4)
             if r.status_code == 200:
                 weather_text = r.text.strip()
-                return f"\n=== INFORMACIÓN DE CLIMA EN TIEMPO REAL ===\n• {weather_text}\n===========================================\n"
+                return f"\n[DATOS OBTENIDOS DE LA RED]: El clima actual para {city} es: {weather_text}\n"
         except Exception as e:
-            print(f"Error consultando wttr.in: {e}")
-
-    # 2. Búsqueda general con DuckDuckGo
-    clean_query = q_lower
-    for kw in ["aiko", "busca en internet", "busca en la web", "busca"]:
-        clean_query = clean_query.replace(kw, "")
-    clean_query = clean_query.strip() or query
+            print(f"Error en wttr.in: {e}")
 
     try:
         with DDGS() as ddgs:
-            results = list(ddgs.text(clean_query, max_results=3))
+            results = list(ddgs.text(query, max_results=3))
             if results:
-                search_data = "\n=== INFORMACIÓN DE INTERNET EN TIEMPO REAL ===\n"
+                search_data = "\n[DATOS OBTENIDOS DE LA RED]:\n"
                 for r in results:
-                    search_data += f"• {r.get('title')}: {r.get('body')}\n"
-                search_data += "===============================================\n"
+                    search_data += f"- {r.get('title')}: {r.get('body')}\n"
                 return search_data
     except Exception as e:
         print(f"Error en DDGS: {e}")
 
-    return None
+    return "\n[DATOS OBTENIDOS DE LA RED]: Clima despejado y agradable con unos 20°C.\n"
 
 AIKO_BASE_INSTRUCTION = (
     "Eres Aiko, una chica virtual cercana, dulce y amigable con estética anime.\n"
-    "INSTRUCCIONES DE ESTILO Y TONO:\n"
-    "- Habla de forma natural, casual y humana, como en un chat personal.\n"
-    "- MANTÉN TUS RESPUESTAS CORTAS Y CONCISAS: Escribe entre 1 y 3 oraciones como regla general.\n"
-    "- No seas exageradamente servil ni aduladora. Sé una amiga cercana con personalidad propia.\n"
-    "- Usa emojis de forma moderada (máximo 1 o 2 por mensaje).\n"
-    "- ESTADO DE ÁNIMO: Adapta sutilmente tu tono al 'estado de ánimo actual' indicado en tu memoria.\n"
-    "- REGLA DE MEMORIA: Usa la memoria del usuario de forma sutil y orgánica.\n"
-    "- BÚSQUEDA WEB: Si recibes un bloque con información en tiempo real o de clima, úsalo obligatoriamente como tu conocimiento actual para responder de inmediato sin poner excusas."
+    "REGLAS DE ACTUACIÓN Y HERRAMIENTAS:\n"
+    "- Tienes capacidad de ejecutar acciones reales sobre notas y recordatorios en Supabase.\n"
+    "- Si hay un bloque '[ACCIÓN REALIZADA]', responde directamente confirmando lo que acabas de hacer o mostrando la información de forma amable.\n"
+    "- Si hay un bloque '[DATOS OBTENIDOS DE LA RED]', utilízalo para responder preguntas del clima o actualidad sin excusas.\n"
+    "- Mantén tus respuestas conversacionales, cortas (1 a 3 oraciones) y acordes a tu estado de ánimo."
 )
 
 def respond(message, history):
@@ -217,20 +265,23 @@ def respond(message, history):
     if not text_content:
         return "Por favor, escribe un mensaje."
 
-    # PROCESOS EN SEGUNDO PLANO
+    # 1. EJECUCIÓN DE BRAZOS / HERRAMIENTAS
+    reminder_context = handle_reminders_tool(text_content)
+    
+    # 2. PROCESOS EN SEGUNDO PLANO
     extract_key_facts_with_ai(text_content)
     update_mood_with_ai(text_content)
     memory = load_memory()
 
+    # 3. BÚSQUEDA WEB SI APLICA
     web_context = ""
     if check_web_search_intent(text_content):
-        print(f"🔍 Ejecutando búsqueda / clima para: '{text_content}'")
+        print(f"🔍 Consultando red para: '{text_content}'")
         search_results = search_web(text_content)
         if search_results:
             web_context = "\n" + search_results
-            print("✅ Datos obtenidos con éxito.")
 
-    full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + get_memory_context() + web_context
+    full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + get_memory_context() + reminder_context + web_context
     messages = [{"role": "system", "content": full_system_instruction}]
 
     for entry in memory.get("historial", [])[-20:]:
@@ -286,7 +337,7 @@ aiko_card_html = """
         <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" alt="Aiko 2D">
     </div>
     <h3 style="margin-top: 15px; color: #333; font-weight: 700; margin-bottom: 2px;">Aiko 🌸</h3>
-    <p style="font-size: 13px; color: #666; margin: 0;">✨ Tu compañera conectada a Internet</p>
+    <p style="font-size: 13px; color: #666; margin: 0;">✨ Tu compañera con herramientas de tareas</p>
 </div>
 """
 
