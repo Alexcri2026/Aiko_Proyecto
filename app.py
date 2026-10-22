@@ -31,10 +31,13 @@ DEFAULT_MEMORY = {
 MODEL_CHAT = "openai/gpt-oss-120b"
 MODEL_FAST = "openai/gpt-oss-20b"
 
-# --- FUNCIONES DE MEMORIA (SUPABASE) ---
+# --- FUNCIONES DE MEMORIA BLINDADA (SUPABASE) ---
 def load_memory():
+    """Carga la memoria desde Supabase sin sobrescribir nunca por error de conexión."""
     if not supabase:
-        return DEFAULT_MEMORY
+        print("⚠️ Supabase no está configurado. Usando memoria por defecto local.")
+        return DEFAULT_MEMORY.copy()
+
     try:
         response = supabase.table("aiko_memory").select("data").eq("id", 1).execute()
         if response.data and len(response.data) > 0:
@@ -43,18 +46,30 @@ def load_memory():
                 data.setdefault("historial", [])
                 data.setdefault("usuario", DEFAULT_MEMORY["usuario"])
                 data.setdefault("datos_clave", DEFAULT_MEMORY["datos_clave"])
+                print("✅ Memoria cargada con éxito desde Supabase.")
                 return data
+        else:
+            print("⚠️ Fila id=1 no encontrada en Supabase.")
     except Exception as e:
-        print(f"Error al cargar memoria desde Supabase: {e}")
-    return DEFAULT_MEMORY
+        print(f"❌ Error al conectar con Supabase al cargar: {e}")
+
+    # Devuelve copia local temporal solo si falla la red, SIN tocar Supabase
+    return DEFAULT_MEMORY.copy()
 
 def save_memory(memory_data):
+    """Guarda en Supabase únicamente si los datos son válidos."""
     if not supabase:
         return
+
+    if not memory_data or not isinstance(memory_data, dict):
+        print("⚠️ Intento de guardar memoria inválida abortado.")
+        return
+
     try:
         supabase.table("aiko_memory").update({"data": memory_data}).eq("id", 1).execute()
+        print("✅ Memoria guardada exitosamente en Supabase.")
     except Exception as e:
-        print(f"Error al guardar memoria en Supabase: {e}")
+        print(f"❌ Error guardando en Supabase: {e}")
 
 def extract_key_facts_with_ai(user_message):
     if not client or not user_message.strip():
@@ -108,7 +123,7 @@ def check_image_generation_intent(message):
     return any(kw in msg for kw in keywords)
 
 def generate_image_url(user_prompt):
-    """Limpia el mensaje, traduce la idea a un prompt optimizado y devuelve la URL de Pollinations.ai"""
+    """Traduce la idea a un prompt optimizado y devuelve la URL de Pollinations.ai"""
     clean_prompt = user_prompt.lower()
     for kw in ["aiko", "dibuja", "dibújame", "dibujame", "crea una imagen de", "genera una imagen de", "haz una imagen de", "hazme una imagen de", "hazme un dibujo de", "haz un dibujo de", "imagen de", "dibujo de"]:
         clean_prompt = clean_prompt.replace(kw, "")
@@ -153,7 +168,7 @@ def respond(message, history):
     if not text_content:
         return "Por favor, escribe un mensaje."
 
-    # 1. CASO GENERAR IMAGEN (DETECCIÓN RÁPIDA POR PALABRAS CLAVE)
+    # 1. CASO GENERAR IMAGEN
     if check_image_generation_intent(text_content):
         image_url = generate_image_url(text_content)
         bot_response = f"¡Aquí tienes el dibujo que me pediste! 🌸✨\n\n![Dibujo de Aiko]({image_url})"
@@ -208,4 +223,35 @@ aiko_card_html = """
     50% { transform: translateY(-4px) scale(1.01); }
 }
 .aiko-card {
-    display: flex; flex-direction: column; align-items: center; justify-content: center
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%);
+    border-radius: 20px; padding: 20px; box-shadow: 0 8px 25px rgba(0,0,0,0.08); height: 100%;
+}
+.aiko-image-container {
+    width: 220px; height: 320px; border-radius: 15px; overflow: hidden;
+    border: 4px solid #ffffff; box-shadow: 0 8px 20px rgba(255, 105, 180, 0.25);
+    animation: breathe 4s ease-in-out infinite;
+}
+.aiko-image-container img { width: 100%; height: 100%; object-fit: cover; object-position: top center; }
+</style>
+<div class="aiko-card">
+    <div class="aiko-image-container">
+        <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" alt="Aiko 2D">
+    </div>
+    <h3 style="margin-top: 15px; color: #333; font-weight: 700; margin-bottom: 2px;">Aiko 🌸</h3>
+    <p style="font-size: 13px; color: #666; margin: 0;">✨ Tu compañera virtual</p>
+</div>
+"""
+
+with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
+    gr.Markdown("# ✨ Aiko AI Companion")
+    with gr.Row():
+        with gr.Column(scale=1, min_width=280):
+            gr.HTML(aiko_card_html)
+        with gr.Column(scale=2):
+            gr.ChatInterface(fn=respond)
+
+port = int(os.environ.get("PORT", 7860))
+
+if __name__ == "__main__":
+    demo.launch(server_name="0.0.0.0", server_port=port)
