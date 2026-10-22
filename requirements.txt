@@ -1,4 +1,4 @@
 gradio
 groq
-pillow
 supabase
+duckduckgo-search
