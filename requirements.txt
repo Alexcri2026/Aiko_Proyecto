@@ -2,3 +2,4 @@ gradio
 groq
 supabase
 duckduckgo-search
+requests
