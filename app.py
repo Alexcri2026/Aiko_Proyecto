@@ -2,7 +2,6 @@ import os
 import json
 import re
 import urllib.parse
-import base64
 import gradio as gr
 from groq import Groq
 from supabase import create_client, Client
@@ -27,6 +26,10 @@ DEFAULT_MEMORY = {
     ],
     "historial": []
 }
+
+# --- MODELOS FIJOS DE GROQ ---
+MODEL_CHAT = "openai/gpt-oss-120b"
+MODEL_FAST = "openai/gpt-oss-20b"
 
 # --- FUNCIONES DE MEMORIA (SUPABASE) ---
 def load_memory():
@@ -53,7 +56,7 @@ def save_memory(memory_data):
     except Exception as e:
         print(f"Error al guardar memoria en Supabase: {e}")
 
-def extract_key_facts_with_ai(user_message, model_name="llama-3.1-8b-instant"):
+def extract_key_facts_with_ai(user_message):
     if not client or not user_message.strip():
         return
     extraction_prompt = (
@@ -65,7 +68,7 @@ def extract_key_facts_with_ai(user_message, model_name="llama-3.1-8b-instant"):
     )
     try:
         completion = client.chat.completions.create(
-            model=model_name,
+            model=MODEL_FAST,
             messages=[{"role": "system", "content": "Eres un extractor de datos clave preciso."},
                       {"role": "user", "content": extraction_prompt}],
             temperature=0.2,
@@ -93,7 +96,7 @@ def get_memory_context():
     context += "=========================================="
     return context
 
-# --- DETECCIÓN Y GENERACIÓN DE IMÁGENES ---
+# --- GENERACIÓN DE IMÁGENES ---
 def check_image_generation_intent(message):
     """Comprueba si el usuario está pidiendo generar/dibujar una imagen."""
     prompt = (
@@ -103,7 +106,7 @@ def check_image_generation_intent(message):
     )
     try:
         completion = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model=MODEL_FAST,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.0,
             max_tokens=5,
@@ -114,16 +117,16 @@ def check_image_generation_intent(message):
         return False
 
 def generate_image_url(user_prompt):
-    """Traduce la idea a un prompt optimizado y devuelve una URL de Pollinations.ai"""
+    """Traduce la idea a un prompt optimizado en inglés y devuelve la URL de Pollinations.ai"""
     translation_prompt = (
-        "Convierte la petición del usuario en un prompt detallado en INGLÉS para un generador de imágenes de Inteligencia Artificial.\n"
+        "Convierte la petición del usuario en un prompt detallado en INGLÉS para un generador de imágenes de IA.\n"
         "Añade detalles de estilo (anime, vibrant, detailed, 4k).\n"
         "Responde ÚNICAMENTE con el prompt en inglés sin explicaciones ni comillas.\n\n"
         f"Petición: \"{user_prompt}\""
     )
     try:
         completion = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model=MODEL_FAST,
             messages=[{"role": "user", "content": translation_prompt}],
             temperature=0.7,
             max_tokens=100,
@@ -133,13 +136,7 @@ def generate_image_url(user_prompt):
         english_prompt = user_prompt
 
     encoded_prompt = urllib.parse.quote(english_prompt)
-    image_url = f"https://pollinations.ai/p/{encoded_prompt}?width=800&height=600&seed=42&model=flux"
-    return image_url
-
-# --- PROCESAMIENTO MULTIMODAL DE IMÁGENES (VER FOTOS) ---
-def encode_image_to_base64(image_path):
-    with open(image_path, "rb") as image_file:
-        return base64.b64encode(image_file.read()).decode("utf-8")
+    return f"https://pollinations.ai/p/{encoded_prompt}?width=800&height=600&seed=42&model=flux"
 
 AIKO_BASE_INSTRUCTION = (
     "Eres Aiko, una chica virtual cercana, dulce y amigable con estética anime.\n"
@@ -155,50 +152,11 @@ def respond(message, history):
     if not client:
         return "Error: La clave GROQ_API_KEY no está configurada."
 
-    # Extraer texto y posibles archivos adjuntos enviados desde Gradio
-    text_content = message.get("text", "") if isinstance(message, dict) else str(message)
-    files = message.get("files", []) if isinstance(message, dict) else []
+    text_content = str(message).strip()
+    if not text_content:
+        return "Por favor, escribe un mensaje."
 
-    if not text_content.strip() and not files:
-        return "Por favor, escribe un mensaje o adjunta una imagen."
-
-    # 1. CASO PROCESAR IMAGEN ADJUNTA (VISIÓN)
-    if files:
-        image_path = files[0]
-        try:
-            base64_image = encode_image_to_base64(image_path)
-            prompt_text = text_content if text_content.strip() else "¿Qué ves en esta imagen?"
-            
-            vision_messages = [
-                {"role": "system", "content": AIKO_BASE_INSTRUCTION + "\n" + get_memory_context()},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt_text},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                    ]
-                }
-            ]
-
-            completion = client.chat.completions.create(
-                model="llama-3.2-11b-vision-preview",
-                messages=vision_messages,
-                temperature=0.7,
-                max_tokens=300,
-            )
-            bot_response = completion.choices[0].message.content.strip()
-
-            # Guardar en memoria
-            memory = load_memory()
-            memory["historial"].append({"role": "user", "content": f"[Envió una imagen]: {prompt_text}"})
-            memory["historial"].append({"role": "assistant", "content": bot_response})
-            save_memory(memory)
-
-            return bot_response
-        except Exception as e:
-            return f"Error al procesar la imagen: {str(e)}"
-
-    # 2. CASO GENERAR IMAGEN (DIBUJAR)
+    # 1. CASO GENERAR IMAGEN
     if check_image_generation_intent(text_content):
         image_url = generate_image_url(text_content)
         bot_response = f"¡Aquí tienes el dibujo que me pediste! 🌸✨\n\n![Dibujo de Aiko]({image_url})"
@@ -210,7 +168,7 @@ def respond(message, history):
         
         return bot_response
 
-    # 3. CONVERSACIÓN NORMAL
+    # 2. CONVERSACIÓN NORMAL
     extract_key_facts_with_ai(text_content)
     memory = load_memory()
 
@@ -228,7 +186,7 @@ def respond(message, history):
 
     try:
         completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=MODEL_CHAT,
             messages=messages,
             temperature=0.8,
             max_tokens=256,
@@ -269,7 +227,7 @@ aiko_card_html = """
         <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" alt="Aiko 2D">
     </div>
     <h3 style="margin-top: 15px; color: #333; font-weight: 700; margin-bottom: 2px;">Aiko 🌸</h3>
-    <p style="font-size: 13px; color: #666; margin: 0;">✨ Tu compañera virtual (Multimodal)</p>
+    <p style="font-size: 13px; color: #666; margin: 0;">✨ Tu compañera virtual</p>
 </div>
 """
 
@@ -279,10 +237,7 @@ with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
         with gr.Column(scale=1, min_width=280):
             gr.HTML(aiko_card_html)
         with gr.Column(scale=2):
-            gr.ChatInterface(
-                fn=respond,
-                multimodal=True  # Habilita botón para adjuntar imágenes
-            )
+            gr.ChatInterface(fn=respond)
 
 port = int(os.environ.get("PORT", 7860))
 
