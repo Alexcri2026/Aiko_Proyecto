@@ -143,33 +143,41 @@ def get_memory_context():
     context += "====================================================\n"
     return context
 
-# --- BÚSQUEDA WEB EN TIEMPO REAL FLEXIBLE ---
+# --- BÚSQUEDA WEB EN TIEMPO REAL ROBUSTA ---
 def check_web_search_intent(message):
-    """Detecta de forma amplia si el mensaje requiere información en vivo."""
+    """Detecta si el mensaje solicita datos de actualidad o búsquedas."""
     msg = message.lower()
     keywords = [
         "clima", "tiempo", "temperatura", "noticias", "noticia", "quién es", "quien es",
         "precio", "resultado", "qué pasó", "que paso", "última hora", "ultima hora",
         "busca", "internet", "web", "cuándo", "cuando", "estreno", "hoy", "actualidad",
-        "dame información", "cuál es el", "cual es el", "dime sobre"
+        "dame información", "cuál es el", "cual es el", "dime sobre", "madrid", "parís", "paris"
     ]
     return any(kw in msg for kw in keywords)
 
 def search_web(query):
-    """Ejecuta la búsqueda en DuckDuckGo y formatea los resultados."""
+    """Ejecuta la búsqueda en DuckDuckGo capturando posibles fallos."""
+    clean_query = query.lower()
+    for kw in ["aiko", "busca en internet", "busca en la web", "busca"]:
+        clean_query = clean_query.replace(kw, "")
+    clean_query = clean_query.strip()
+    
+    if not clean_query:
+        clean_query = query
+
     try:
         with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=3))
+            results = list(ddgs.text(clean_query, max_results=4))
             if not results:
                 return None
             
-            search_data = "\n=== INFORMACIÓN DE INTERNET EN TIEMPO REAL (Úsala para responder) ===\n"
+            search_data = "\n=== INFORMACIÓN DE INTERNET OBTENIDA EN TIEMPO REAL ===\n"
             for r in results:
-                search_data += f"- {r.get('title')}: {r.get('body')}\n"
-            search_data += "===================================================================\n"
+                search_data += f"• {r.get('title')}: {r.get('body')}\n"
+            search_data += "=======================================================\n"
             return search_data
     except Exception as e:
-        print(f"Error realizando la búsqueda web: {e}")
+        print(f"❌ Error realizando la búsqueda web con DuckDuckGo: {e}")
         return None
 
 AIKO_BASE_INSTRUCTION = (
@@ -181,7 +189,7 @@ AIKO_BASE_INSTRUCTION = (
     "- Usa emojis de forma moderada (máximo 1 o 2 por mensaje).\n"
     "- ESTADO DE ÁNIMO: Adapta sutilmente tu tono al 'estado de ánimo actual' indicado en tu memoria.\n"
     "- REGLA DE MEMORIA: Usa la memoria del usuario de forma sutil y orgánica.\n"
-    "- BÚSQUEDA WEB: Si recibes un bloque con 'INFORMACIÓN DE INTERNET EN TIEMPO REAL', tómalo como tu propio conocimiento actual. NUNCA digas 'no puedo buscar en internet' o 'no tengo acceso a la red' si ese bloque está presente."
+    "- REGLA BÚSQUEDA WEB: Si recibes una sección 'INFORMACIÓN DE INTERNET OBTENIDA EN TIEMPO REAL', debes responder a la pregunta utilizando ESOS DATOS como tu conocimiento actual. JAMÁS digas que 'no puedes acceder a datos en tiempo real' si se te incluye dicho bloque."
 )
 
 def respond(message, history):
@@ -203,6 +211,8 @@ def respond(message, history):
         search_results = search_web(text_content)
         if search_results:
             web_context = "\n" + search_results
+        else:
+            print("⚠️ No se obtuvieron resultados de la búsqueda web.")
 
     full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + get_memory_context() + web_context
     messages = [{"role": "system", "content": full_system_instruction}]
@@ -220,7 +230,7 @@ def respond(message, history):
         completion = client.chat.completions.create(
             model=MODEL_CHAT,
             messages=messages,
-            temperature=0.8,
+            temperature=0.7,
             max_tokens=256,
             tool_choice="none"
         )
