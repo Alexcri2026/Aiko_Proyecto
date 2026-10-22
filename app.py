@@ -31,15 +31,15 @@ DEFAULT_MEMORY = {
     "historial": []
 }
 
-# --- MODELOS FIJOS DE GROQ (NUNCA CAMBIAR) ---
+# --- MODELOS FIJOS DE GROQ ---
 MODEL_CHAT = "openai/gpt-oss-120b"
 MODEL_FAST = "openai/gpt-oss-20b"
 
-# --- FUNCIONES DE MEMORIA BLINDADA (SUPABASE) ---
+# --- FUNCIONES DE MEMORIA ROBUSTA (SUPABASE) ---
 def load_memory():
-    """Carga la memoria desde Supabase sin sobrescribir nunca por error de conexión."""
+    """Carga la memoria desde Supabase asegurando la persistencia de recordatorios."""
     if not supabase:
-        print("⚠️ Supabase no está configurado. Usando memoria por defecto local.")
+        print("⚠️ Supabase no configurado.")
         return DEFAULT_MEMORY.copy()
 
     try:
@@ -47,12 +47,18 @@ def load_memory():
         if response.data and len(response.data) > 0:
             data = response.data[0]["data"]
             if isinstance(data, dict):
-                data.setdefault("historial", [])
-                data.setdefault("usuario", DEFAULT_MEMORY["usuario"])
-                data.setdefault("datos_clave", DEFAULT_MEMORY["datos_clave"])
-                data.setdefault("estado_animo", "alegre 🌸")
-                data.setdefault("recordatorios", [])
-                print("✅ Memoria cargada con éxito desde Supabase.")
+                # Asegurar claves sin limpiar listas existentes
+                if "historial" not in data or not isinstance(data["historial"], list):
+                    data["historial"] = []
+                if "usuario" not in data or not isinstance(data["usuario"], dict):
+                    data["usuario"] = DEFAULT_MEMORY["usuario"]
+                if "datos_clave" not in data or not isinstance(data["datos_clave"], list):
+                    data["datos_clave"] = DEFAULT_MEMORY["datos_clave"]
+                if "recordatorios" not in data or not isinstance(data["recordatorios"], list):
+                    data["recordatorios"] = []
+                if "estado_animo" not in data:
+                    data["estado_animo"] = "alegre 🌸"
+                
                 return data
     except Exception as e:
         print(f"❌ Error al conectar con Supabase al cargar: {e}")
@@ -60,48 +66,51 @@ def load_memory():
     return DEFAULT_MEMORY.copy()
 
 def save_memory(memory_data):
-    """Guarda en Supabase únicamente si los datos son válidos."""
-    if not supabase:
-        return
-
-    if not memory_data or not isinstance(memory_data, dict):
+    """Guarda en Supabase de forma segura."""
+    if not supabase or not memory_data or not isinstance(memory_data, dict):
         return
 
     try:
         supabase.table("aiko_memory").update({"data": memory_data}).eq("id", 1).execute()
-        print("✅ Memoria y recordatorios guardados en Supabase.")
+        print("✅ Memoria guardada con éxito en Supabase.")
     except Exception as e:
         print(f"❌ Error guardando en Supabase: {e}")
 
-# --- HERRAMIENTAS DE PRODUCTIVIDAD (BRAZOS DE AIKO) ---
+# --- HERRAMIENTAS DE PRODUCTIVIDAD (SEPARADAS DE HECHOS PERSONALES) ---
 def handle_reminders_tool(user_message):
-    """Procesa acciones de recordatorios y notas según el mensaje del usuario."""
+    """Procesa EXCLUSIVAMENTE intenciones explícitas de notas o recordatorios."""
     if not client or not user_message.strip():
         return ""
 
+    msg_lower = user_message.lower()
+    
+    # Palabras clave explícitas para activar la herramienta de notas
+    keywords_notas = ["anota", "anotar", "recuérdame", "recuerdame", "recordatorio", "guarda en notas", "mis notas", "mis recordatorios", "borra notas", "borra recordatorios", "limpia notas"]
+    if not any(kw in msg_lower for kw in keywords_notas):
+        return ""
+
     prompt = (
-        "Analiza el siguiente mensaje del usuario. Determina si quiere realizar una acción con recordatorios o notas.\n"
-        "Opciones posibles:\n"
-        "1. GUARDAR: Si quiere anotar o recordar algo (ej: 'anota comprar leche', 'recuérdame revisar el servidor'). Extrae el texto exacto a recordar.\n"
-        "2. VER: Si pregunta qué recordatorios o notas tiene pendientes (ej: '¿qué tengo pendiente?', 'muéstrame mis notas').\n"
-        "3. BORRAR: Si quiere borrar o limpiar sus notas (ej: 'borra mis recordatorios', 'limpia las notas').\n"
-        "4. NINGUNO: Si no tiene relación con notas o recordatorios.\n\n"
-        "Responde ESTRICTAMENTE en formato JSON plano sin bloques de código:\n"
-        '{"accion": "GUARDAR" | "VER" | "BORRAR" | "NINGUNO", "texto": "texto del recordatorio si aplica"}\n\n'
+        "Analiza el siguiente mensaje del usuario. Solo actúa si el usuario pide explícitamente gestionar notas o recordatorios.\n"
+        "Opciones:\n"
+        "1. GUARDAR: Si pide recordar/anotar algo (ej: 'anota comprar leche', 'recuérdame llamar a Juan'). Extrae la tarea exacta.\n"
+        "2. VER: Si pregunta por sus notas o tareas pendientes.\n"
+        "3. BORRAR: Si pide borrar o borrar todas las notas/recordatorios.\n"
+        "4. NINGUNO: Si es solo un gusto, preferencia personal o comentario casual.\n\n"
+        "Responde ÚNICAMENTE en JSON plano:\n"
+        '{"accion": "GUARDAR" | "VER" | "BORRAR" | "NINGUNO", "texto": "tarea exacto si es GUARDAR"}\n\n'
         f"Mensaje: \"{user_message}\""
     )
 
     try:
         completion = client.chat.completions.create(
             model=MODEL_FAST,
-            messages=[{"role": "system", "content": "Eres un asistente de herramientas JSON preciso."},
+            messages=[{"role": "system", "content": "Eres un clasificador JSON muy estricto."},
                       {"role": "user", "content": prompt}],
             temperature=0.1,
             max_tokens=100,
             tool_choice="none"
         )
         res_text = completion.choices[0].message.content.strip()
-        # Limpiar posible markdown del JSON
         res_text = re.sub(r'```json|```', '', res_text).strip()
         data = json.loads(res_text)
 
@@ -111,43 +120,44 @@ def handle_reminders_tool(user_message):
         memory = load_memory()
 
         if accion == "GUARDAR" and texto:
-            if texto not in memory["recordatorios"]:
+            if texto not in memory.get("recordatorios", []):
                 memory["recordatorios"].append(texto)
                 save_memory(memory)
-                return f"\n[ACCIÓN REALIZADA]: Has guardado con éxito el recordatorio: \"{texto}\". Confírmaselo al usuario de forma cariñosa.\n"
+                return f"\n[ACCIÓN REALIZADA]: Has guardado en la lista de notas: \"{texto}\". Confírmalo brevemente al usuario.\n"
 
         elif accion == "VER":
             recs = memory.get("recordatorios", [])
             if recs:
                 lista_recs = "\n".join([f"- {r}" for r in recs])
-                return f"\n[ACCIÓN REALIZADA]: Aquí están los recordatorios pendientes en Supabase:\n{lista_recs}\nMuéstraselos de forma clara.\n"
+                return f"\n[ACCIÓN REALIZADA]: Notas y recordatorios guardados:\n{lista_recs}\n"
             else:
-                return "\n[ACCIÓN REALIZADA]: Consultaste Supabase y el usuario no tiene ninguna nota o recordatorio pendiente actualmente.\n"
+                return "\n[ACCIÓN REALIZADA]: El usuario no tiene notas o recordatorios guardados actualmente.\n"
 
         elif accion == "BORRAR":
             memory["recordatorios"] = []
             save_memory(memory)
-            return "\n[ACCIÓN REALIZADA]: Has borrado todos los recordatorios de Supabase correctamente.\n"
+            return "\n[ACCIÓN REALIZADA]: Has borrado todas las notas y recordatorios de la base de datos.\n"
 
     except Exception as e:
-        print(f"Error procesando herramienta de recordatorios: {e}")
+        print(f"Error en herramienta de recordatorios: {e}")
 
     return ""
 
-def extract_key_facts_with_ai(user_message):
-    if not client or not user_message.strip():
+def extract_key_facts_with_ai(user_message, is_note_action):
+    """Extrae datos personales SOLO si el mensaje no era una instrucción de notas."""
+    if not client or not user_message.strip() or is_note_action:
         return
+
     extraction_prompt = (
-        "Analiza el siguiente mensaje del usuario. Determina si menciona algún dato personal, preferencia, "
-        "hecho sobre su vida, gustos o detalles que debas recordar a largo plazo.\n"
-        "Si hay un dato relevante, extráelo en una frase corta (ej: 'Le gustan los gatos').\n"
-        "Si NO hay ningún dato relevante, responde ÚNICAMENTE: NINGUNO.\n\n"
+        "Analiza el siguiente mensaje. Si el usuario revela un gusto, preferencia, pasatiempo o dato personal sobre él mismo "
+        "(ej: 'me gusta el café', 'mi cumpleaños es en mayo'), extráelo en una frase corta.\n"
+        "Si NO hay ningún dato personal nuevo, responde ÚNICAMENTE: NINGUNO.\n\n"
         f"Mensaje: \"{user_message}\""
     )
     try:
         completion = client.chat.completions.create(
             model=MODEL_FAST,
-            messages=[{"role": "system", "content": "Eres un extractor de datos clave preciso."},
+            messages=[{"role": "system", "content": "Extractor de datos personales sobre el usuario."},
                       {"role": "user", "content": extraction_prompt}],
             temperature=0.2,
             max_tokens=100,
@@ -160,16 +170,15 @@ def extract_key_facts_with_ai(user_message):
                 memory["datos_clave"].append(fact)
                 save_memory(memory)
     except Exception as e:
-        print(f"Error extrayendo memoria: {e}")
+        print(f"Error extrayendo hechos: {e}")
 
 def update_mood_with_ai(user_message):
-    """Actualiza el estado de ánimo de Aiko dinámicamente según la charla."""
     if not client or not user_message.strip():
         return
     prompt = (
-        "Elige un estado de ánimo para Aiko entre estas opciones exactas: 'alegre', 'cariñosa', 'pensativa', 'entusiasmada', 'tranquila'. "
-        "Responde ÚNICAMENTE con una de esas palabras según el tono ideal para responder.\n\n"
-        f"Mensaje del usuario: \"{user_message}\""
+        "Elige un estado de ánimo para Aiko entre: 'alegre', 'cariñosa', 'pensativa', 'entusiasmada', 'tranquila'. "
+        "Responde ÚNICAMENTE con una palabra.\n\n"
+        f"Mensaje: \"{user_message}\""
     )
     try:
         completion = client.chat.completions.create(
@@ -193,34 +202,29 @@ def update_mood_with_ai(user_message):
 def get_memory_context():
     memory = load_memory()
     context = "\n=== LO QUE RECUERDAS SOBRE EL USUARIO Y TU ESTADO ===\n"
-    context += f"- Tu estado de ánimo actual: {memory.get('estado_animo', 'alegre')}\n"
+    context += f"- Estado de ánimo: {memory.get('estado_animo', 'alegre')}\n"
     if memory.get("usuario"):
         for k, v in memory.get("usuario", {}).items():
             context += f"- {k.capitalize()}: {v}\n"
     if memory.get("datos_clave"):
-        context += "- Hechos recordados:\n"
+        context += "- Gustos y hechos recordados:\n"
         for item in memory.get("datos_clave", []):
             context += f"  * {item}\n"
     if memory.get("recordatorios"):
-        context += "- Recordatorios activos:\n"
+        context += "- Notas y Recordatorios activos:\n"
         for rec in memory.get("recordatorios", []):
             context += f"  * {rec}\n"
     context += "====================================================\n"
     return context
 
-# --- BÚSQUEDA WEB Y CLIMA EN TIEMPO REAL ---
+# --- BÚSQUEDA WEB Y CLIMA ---
 def check_web_search_intent(message):
     msg = message.lower()
-    keywords = [
-        "clima", "tiempo", "temperatura", "noticias", "noticia", "quién es", "quien es",
-        "precio", "resultado", "qué pasó", "que paso", "última hora", "ultima hora",
-        "busca", "internet", "web", "cuándo", "cuando", "estreno", "hoy", "actualidad"
-    ]
+    keywords = ["clima", "tiempo", "temperatura", "noticias", "precio", "resultado", "busca", "internet", "web", "actualidad"]
     return any(kw in msg for kw in keywords)
 
 def search_web(query):
     q_lower = query.lower()
-
     if any(w in q_lower for w in ["clima", "tiempo", "temperatura"]):
         city = "Madrid"
         if "madrid" in q_lower: city = "Madrid"
@@ -230,8 +234,7 @@ def search_web(query):
         try:
             r = requests.get(f"https://wttr.in/{city}?format=3", headers={"User-Agent": "curl"}, timeout=4)
             if r.status_code == 200:
-                weather_text = r.text.strip()
-                return f"\n[DATOS OBTENIDOS DE LA RED]: El clima actual para {city} es: {weather_text}\n"
+                return f"\n[DATOS OBTENIDOS DE LA RED]: Clima para {city}: {r.text.strip()}\n"
         except Exception as e:
             print(f"Error en wttr.in: {e}")
 
@@ -246,15 +249,14 @@ def search_web(query):
     except Exception as e:
         print(f"Error en DDGS: {e}")
 
-    return "\n[DATOS OBTENIDOS DE LA RED]: Clima despejado y agradable con unos 20°C.\n"
+    return None
 
 AIKO_BASE_INSTRUCTION = (
     "Eres Aiko, una chica virtual cercana, dulce y amigable con estética anime.\n"
-    "REGLAS DE ACTUACIÓN Y HERRAMIENTAS:\n"
-    "- Tienes capacidad de ejecutar acciones reales sobre notas y recordatorios en Supabase.\n"
-    "- Si hay un bloque '[ACCIÓN REALIZADA]', responde directamente confirmando lo que acabas de hacer o mostrando la información de forma amable.\n"
-    "- Si hay un bloque '[DATOS OBTENIDOS DE LA RED]', utilízalo para responder preguntas del clima o actualidad sin excusas.\n"
-    "- Mantén tus respuestas conversacionales, cortas (1 a 3 oraciones) y acordes a tu estado de ánimo."
+    "REGLAS PRINCIPALES:\n"
+    "- Tienes una sección de 'Notas y Recordatorios' separada de tus 'Gustos y hechos recordados'.\n"
+    "- Si ves un bloque '[ACCIÓN REALIZADA]', responde de forma breve confirmando la acción o mostrando la lista.\n"
+    "- Respuestas cortas, concisas (1 a 3 oraciones) y naturales."
 )
 
 def respond(message, history):
@@ -265,18 +267,18 @@ def respond(message, history):
     if not text_content:
         return "Por favor, escribe un mensaje."
 
-    # 1. EJECUCIÓN DE BRAZOS / HERRAMIENTAS
+    # 1. EVALUAR SI ES UNA NOTA/RECORDATORIO
     reminder_context = handle_reminders_tool(text_content)
-    
-    # 2. PROCESOS EN SEGUNDO PLANO
-    extract_key_facts_with_ai(text_content)
+    is_note_action = bool(reminder_context)
+
+    # 2. PROCESAR HECHOS Y ÁNIMO (Evita guardar notas como gustos)
+    extract_key_facts_with_ai(text_content, is_note_action)
     update_mood_with_ai(text_content)
     memory = load_memory()
 
     # 3. BÚSQUEDA WEB SI APLICA
     web_context = ""
     if check_web_search_intent(text_content):
-        print(f"🔍 Consultando red para: '{text_content}'")
         search_results = search_web(text_content)
         if search_results:
             web_context = "\n" + search_results
