@@ -143,29 +143,30 @@ def get_memory_context():
     context += "====================================================\n"
     return context
 
-# --- BÚSQUEDA WEB EN TIEMPO REAL ---
+# --- BÚSQUEDA WEB EN TIEMPO REAL FLEXIBLE ---
 def check_web_search_intent(message):
-    """Comprueba si el usuario está preguntando algo de actualidad que requiere buscar en la web."""
+    """Detecta de forma amplia si el mensaje requiere información en vivo."""
     msg = message.lower()
     keywords = [
         "clima", "tiempo", "temperatura", "noticias", "noticia", "quién es", "quien es",
-        "precio de", "resultado", "qué pasó", "que paso", "última hora", "ultima hora",
-        "busca", "internet", "web", "cuándo sale", "cuando sale", "estreno", "hoy", "actualidad"
+        "precio", "resultado", "qué pasó", "que paso", "última hora", "ultima hora",
+        "busca", "internet", "web", "cuándo", "cuando", "estreno", "hoy", "actualidad",
+        "dame información", "cuál es el", "cual es el", "dime sobre"
     ]
     return any(kw in msg for kw in keywords)
 
 def search_web(query):
-    """Ejecuta una búsqueda ligera en DuckDuckGo y devuelve los datos clave."""
+    """Ejecuta la búsqueda en DuckDuckGo y formatea los resultados."""
     try:
         with DDGS() as ddgs:
             results = list(ddgs.text(query, max_results=3))
             if not results:
                 return None
             
-            search_data = "\n=== INFORMACIÓN EN TIEMPO REAL OBTENIDA DE LA WEB ===\n"
+            search_data = "\n=== INFORMACIÓN DE INTERNET EN TIEMPO REAL (Úsala para responder) ===\n"
             for r in results:
                 search_data += f"- {r.get('title')}: {r.get('body')}\n"
-            search_data += "======================================================\n"
+            search_data += "===================================================================\n"
             return search_data
     except Exception as e:
         print(f"Error realizando la búsqueda web: {e}")
@@ -180,7 +181,7 @@ AIKO_BASE_INSTRUCTION = (
     "- Usa emojis de forma moderada (máximo 1 o 2 por mensaje).\n"
     "- ESTADO DE ÁNIMO: Adapta sutilmente tu tono al 'estado de ánimo actual' indicado en tu memoria.\n"
     "- REGLA DE MEMORIA: Usa la memoria del usuario de forma sutil y orgánica.\n"
-    "- Si se te proporciona información de la web, úsala para responder de forma actualizada de manera natural."
+    "- BÚSQUEDA WEB: Si recibes un bloque con 'INFORMACIÓN DE INTERNET EN TIEMPO REAL', tómalo como tu propio conocimiento actual. NUNCA digas 'no puedo buscar en internet' o 'no tengo acceso a la red' si ese bloque está presente."
 )
 
 def respond(message, history):
@@ -221,7 +222,7 @@ def respond(message, history):
             messages=messages,
             temperature=0.8,
             max_tokens=256,
-            tool_choice="none"  # <-- Evita que el modelo intente invocar herramientas internas y lance el error 400
+            tool_choice="none"
         )
         bot_response = completion.choices[0].message.content.strip()
 
@@ -259,7 +260,7 @@ aiko_card_html = """
         <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" alt="Aiko 2D">
     </div>
     <h3 style="margin-top: 15px; color: #333; font-weight: 700; margin-bottom: 2px;">Aiko 🌸</h3>
-    <p style="font-size: 13px; color: #666; margin: 0;">✨ Tu compañera con emociones</p>
+    <p style="font-size: 13px; color: #666; margin: 0;">✨ Tu compañera conectada a Internet</p>
 </div>
 """
 
