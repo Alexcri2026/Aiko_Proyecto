@@ -28,6 +28,7 @@ DEFAULT_MEMORY = {
     ],
     "estado_animo": "alegre 🌸",
     "recordatorios": [],
+    "snippets": [],
     "historial": []
 }
 
@@ -35,76 +36,85 @@ DEFAULT_MEMORY = {
 MODEL_CHAT = "openai/gpt-oss-120b"
 MODEL_FAST = "openai/gpt-oss-20b"
 
+# Variable global para evitar sobrescritura por fallos de carga inicial
+MEMORY_LOADED_SUCCESSFULLY = False
+
 # --- FUNCIONES DE MEMORIA ROBUSTA (SUPABASE) ---
 def load_memory():
-    """Carga la memoria desde Supabase asegurando la persistencia de recordatorios."""
+    """Carga la memoria directamente desde Supabase con blindaje contra pérdidas."""
+    global MEMORY_LOADED_SUCCESSFULLY
+
     if not supabase:
-        print("⚠️ Supabase no configurado.")
+        print("⚠️ Supabase no está configurado.")
         return DEFAULT_MEMORY.copy()
 
     try:
         response = supabase.table("aiko_memory").select("data").eq("id", 1).execute()
         if response.data and len(response.data) > 0:
-            data = response.data[0]["data"]
+            data = response.data[0].get("data", {})
             if isinstance(data, dict):
-                # Asegurar claves sin limpiar listas existentes
-                if "historial" not in data or not isinstance(data["historial"], list):
-                    data["historial"] = []
-                if "usuario" not in data or not isinstance(data["usuario"], dict):
-                    data["usuario"] = DEFAULT_MEMORY["usuario"]
-                if "datos_clave" not in data or not isinstance(data["datos_clave"], list):
-                    data["datos_clave"] = DEFAULT_MEMORY["datos_clave"]
-                if "recordatorios" not in data or not isinstance(data["recordatorios"], list):
-                    data["recordatorios"] = []
-                if "estado_animo" not in data:
-                    data["estado_animo"] = "alegre 🌸"
+                # Mantener datos existentes y rellenar claves faltantes sin limpiar
+                data.setdefault("historial", [])
+                data.setdefault("usuario", DEFAULT_MEMORY["usuario"])
+                data.setdefault("datos_clave", DEFAULT_MEMORY["datos_clave"])
+                data.setdefault("recordatorios", [])
+                data.setdefault("snippets", [])
+                data.setdefault("estado_animo", "alegre 🌸")
                 
+                MEMORY_LOADED_SUCCESSFULLY = True
+                print("✅ Memoria cargada exitosamente desde Supabase.")
                 return data
     except Exception as e:
-        print(f"❌ Error al conectar con Supabase al cargar: {e}")
+        print(f"❌ Error al conectar con Supabase durante la carga: {e}")
 
+    # Si hubo error de red, retoma pero sin marcar estado de éxito para evitar sobrescribir datos
     return DEFAULT_MEMORY.copy()
 
 def save_memory(memory_data):
-    """Guarda en Supabase de forma segura."""
+    """Guarda en Supabase únicamente si la carga previa fue válida."""
+    global MEMORY_LOADED_SUCCESSFULLY
+
     if not supabase or not memory_data or not isinstance(memory_data, dict):
+        return
+
+    # Bloqueo de seguridad: Evita pisar la base si hubo un fallo de lectura al arrancar Render
+    if not MEMORY_LOADED_SUCCESSFULLY:
+        print("⚠️ Guardado omitido para proteger la base de datos contra sobrescrituras tras un fallo de red.")
         return
 
     try:
         supabase.table("aiko_memory").update({"data": memory_data}).eq("id", 1).execute()
-        print("✅ Memoria guardada con éxito en Supabase.")
+        print("✅ Memoria y datos sincronizados correctamente en Supabase.")
     except Exception as e:
-        print(f"❌ Error guardando en Supabase: {e}")
+        print(f"❌ Error guardando datos en Supabase: {e}")
 
-# --- HERRAMIENTAS DE PRODUCTIVIDAD (SEPARADAS DE HECHOS PERSONALES) ---
+# --- BRAZO 1: HERRAMIENTA DE NOTAS Y RECORDATORIOS ---
 def handle_reminders_tool(user_message):
-    """Procesa EXCLUSIVAMENTE intenciones explícitas de notas o recordatorios."""
+    """Procesa intenciones explícitas de notas o recordatorios."""
     if not client or not user_message.strip():
         return ""
 
     msg_lower = user_message.lower()
-    
-    # Palabras clave explícitas para activar la herramienta de notas
     keywords_notas = ["anota", "anotar", "recuérdame", "recuerdame", "recordatorio", "guarda en notas", "mis notas", "mis recordatorios", "borra notas", "borra recordatorios", "limpia notas"]
     if not any(kw in msg_lower for kw in keywords_notas):
         return ""
 
     prompt = (
-        "Analiza el siguiente mensaje del usuario. Solo actúa si el usuario pide explícitamente gestionar notas o recordatorios.\n"
+        "Analiza el siguiente mensaje. Determina si pide gestionar notas o recordatorios cotidianos.\n"
         "Opciones:\n"
-        "1. GUARDAR: Si pide recordar/anotar algo (ej: 'anota comprar leche', 'recuérdame llamar a Juan'). Extrae la tarea exacta.\n"
-        "2. VER: Si pregunta por sus notas o tareas pendientes.\n"
-        "3. BORRAR: Si pide borrar o borrar todas las notas/recordatorios.\n"
-        "4. NINGUNO: Si es solo un gusto, preferencia personal o comentario casual.\n\n"
+        "1. GUARDAR: Si pide recordar/anotar una tarea cotidiana (ej: 'anota comprar leche'). Extrae la tarea.\n"
+        "2. VER: Si pregunta por sus notas o tareas cotidianas pendientes.\n"
+        "3. BORRAR: Si pide borrar todas las notas/recordatorios.\n"
+        "4. NINGUNO: Si es código, snippet o comentario casual.\n\n"
         "Responde ÚNICAMENTE en JSON plano:\n"
-        '{"accion": "GUARDAR" | "VER" | "BORRAR" | "NINGUNO", "texto": "tarea exacto si es GUARDAR"}\n\n'
+        '{"accion": "GUARDAR" | "VER" | "BORRAR" | "NINGUNO", "texto": "tarea exacta si es GUARDAR"}\n\n'
         f"Mensaje: \"{user_message}\""
     )
 
     try:
         completion = client.chat.completions.create(
             model=MODEL_FAST,
-            messages=[{"role": "system", "content": "Eres un clasificador JSON muy estricto."},
+            messages=[{"role": "system", "content": "Clasificador JSON de notas."},
                       {"role": "user", "content": prompt}],
             temperature=0.1,
             max_tokens=100,
@@ -123,34 +133,99 @@ def handle_reminders_tool(user_message):
             if texto not in memory.get("recordatorios", []):
                 memory["recordatorios"].append(texto)
                 save_memory(memory)
-                return f"\n[ACCIÓN REALIZADA]: Has guardado en la lista de notas: \"{texto}\". Confírmalo brevemente al usuario.\n"
+                return f"\n[ACCIÓN REALIZADA]: Guardada nota personal: \"{texto}\".\n"
 
         elif accion == "VER":
             recs = memory.get("recordatorios", [])
             if recs:
                 lista_recs = "\n".join([f"- {r}" for r in recs])
-                return f"\n[ACCIÓN REALIZADA]: Notas y recordatorios guardados:\n{lista_recs}\n"
+                return f"\n[ACCIÓN REALIZADA]: Notas y recordatorios activos:\n{lista_recs}\n"
             else:
-                return "\n[ACCIÓN REALIZADA]: El usuario no tiene notas o recordatorios guardados actualmente.\n"
+                return "\n[ACCIÓN REALIZADA]: No hay notas o recordatorios guardados.\n"
 
         elif accion == "BORRAR":
             memory["recordatorios"] = []
             save_memory(memory)
-            return "\n[ACCIÓN REALIZADA]: Has borrado todas las notas y recordatorios de la base de datos.\n"
+            return "\n[ACCIÓN REALIZADA]: Has borrado todas las notas cotidianas.\n"
 
     except Exception as e:
         print(f"Error en herramienta de recordatorios: {e}")
 
     return ""
 
-def extract_key_facts_with_ai(user_message, is_note_action):
-    """Extrae datos personales SOLO si el mensaje no era una instrucción de notas."""
-    if not client or not user_message.strip() or is_note_action:
+# --- BRAZO 2: HERRAMIENTA DE BIBLIOTECA DE SNIPPETS TÉCNICOS ---
+def handle_snippets_tool(user_message):
+    """Procesa la biblioteca de código, comandos de terminal y snippets técnicos."""
+    if not client or not user_message.strip():
+        return ""
+
+    msg_lower = user_message.lower()
+    keywords_snippets = ["snippet", "código", "codigo", "comando", "función", "funcion", "script", "terminal", "mis snippets", "mis comandos", "borra snippets", "borra comandos"]
+    if not any(kw in msg_lower for kw in keywords_snippets):
+        return ""
+
+    prompt = (
+        "Analiza si el usuario quiere guardar, consultar o borrar un snippet/comando de programación.\n"
+        "Opciones:\n"
+        "1. GUARDAR: Si pide guardar un snippet o comando (ej: 'guarda este comando: git commit'). Extrae el código.\n"
+        "2. VER: Si pide ver sus snippets o comandos guardados.\n"
+        "3. BORRAR: Si pide borrar todos los snippets/comandos.\n"
+        "4. NINGUNO: Si es otro tema.\n\n"
+        "Responde ÚNICAMENTE en JSON plano:\n"
+        '{"accion": "GUARDAR" | "VER" | "BORRAR" | "NINGUNO", "codigo": "fragmento o comando a guardar si es GUARDAR"}\n\n'
+        f"Mensaje: \"{user_message}\""
+    )
+
+    try:
+        completion = client.chat.completions.create(
+            model=MODEL_FAST,
+            messages=[{"role": "system", "content": "Clasificador JSON de snippets técnicos."},
+                      {"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=150,
+            tool_choice="none"
+        )
+        res_text = completion.choices[0].message.content.strip()
+        res_text = re.sub(r'```json|```', '', res_text).strip()
+        data = json.loads(res_text)
+
+        accion = data.get("accion", "NINGUNO")
+        codigo = data.get("codigo", "").strip()
+
+        memory = load_memory()
+
+        if accion == "GUARDAR" and codigo:
+            if codigo not in memory.get("snippets", []):
+                memory["snippets"].append(codigo)
+                save_memory(memory)
+                return f"\n[ACCIÓN REALIZADA]: Guardado snippet técnico en la biblioteca: \"{codigo}\".\n"
+
+        elif accion == "VER":
+            snips = memory.get("snippets", [])
+            if snips:
+                lista_snips = "\n".join([f"```\n{s}\n```" for s in snips])
+                return f"\n[ACCIÓN REALIZADA]: Biblioteca de Snippets guardados:\n{lista_snips}\n"
+            else:
+                return "\n[ACCIÓN REALIZADA]: La biblioteca de snippets está vacía actualmente.\n"
+
+        elif accion == "BORRAR":
+            memory["snippets"] = []
+            save_memory(memory)
+            return "\n[ACCIÓN REALIZADA]: Se ha limpiado toda la biblioteca de snippets técnicos.\n"
+
+    except Exception as e:
+        print(f"Error en herramienta de snippets: {e}")
+
+    return ""
+
+def extract_key_facts_with_ai(user_message, is_tool_action):
+    """Extrae datos personales SOLO si el mensaje no activó un brazo/herramienta."""
+    if not client or not user_message.strip() or is_tool_action:
         return
 
     extraction_prompt = (
-        "Analiza el siguiente mensaje. Si el usuario revela un gusto, preferencia, pasatiempo o dato personal sobre él mismo "
-        "(ej: 'me gusta el café', 'mi cumpleaños es en mayo'), extráelo en una frase corta.\n"
+        "Analiza el mensaje. Si el usuario revela un gusto, preferencia o dato personal sobre él mismo "
+        "(ej: 'me gusta el café', 'estudio Python'), extráelo en una frase corta.\n"
         "Si NO hay ningún dato personal nuevo, responde ÚNICAMENTE: NINGUNO.\n\n"
         f"Mensaje: \"{user_message}\""
     )
@@ -211,9 +286,13 @@ def get_memory_context():
         for item in memory.get("datos_clave", []):
             context += f"  * {item}\n"
     if memory.get("recordatorios"):
-        context += "- Notas y Recordatorios activos:\n"
+        context += "- Notas y Recordatorios cotidianos:\n"
         for rec in memory.get("recordatorios", []):
             context += f"  * {rec}\n"
+    if memory.get("snippets"):
+        context += "- Snippets y Comandos guardados:\n"
+        for snip in memory.get("snippets", []):
+            context += f"  * {snip}\n"
     context += "====================================================\n"
     return context
 
@@ -253,10 +332,10 @@ def search_web(query):
 
 AIKO_BASE_INSTRUCTION = (
     "Eres Aiko, una chica virtual cercana, dulce y amigable con estética anime.\n"
-    "REGLAS PRINCIPALES:\n"
-    "- Tienes una sección de 'Notas y Recordatorios' separada de tus 'Gustos y hechos recordados'.\n"
-    "- Si ves un bloque '[ACCIÓN REALIZADA]', responde de forma breve confirmando la acción o mostrando la lista.\n"
-    "- Respuestas cortas, concisas (1 a 3 oraciones) y naturales."
+    "CAPACIDADES Y BRAZOS:\n"
+    "- Gestiones independientes para: 'Notas cotidianas' y 'Biblioteca de Snippets/Comandos técnicos'.\n"
+    "- Si hay un bloque '[ACCIÓN REALIZADA]', responde confirmando la acción o mostrando la información de forma clara y cariñosa.\n"
+    "- Mantén respuestas breves (1 a 3 oraciones) y con personalidad."
 )
 
 def respond(message, history):
@@ -267,12 +346,14 @@ def respond(message, history):
     if not text_content:
         return "Por favor, escribe un mensaje."
 
-    # 1. EVALUAR SI ES UNA NOTA/RECORDATORIO
+    # 1. EVALUAR EJECUCIÓN DE BRAZOS / HERRAMIENTAS
     reminder_context = handle_reminders_tool(text_content)
-    is_note_action = bool(reminder_context)
+    snippet_context = handle_snippets_tool(text_content)
+    
+    is_tool_action = bool(reminder_context or snippet_context)
 
-    # 2. PROCESAR HECHOS Y ÁNIMO (Evita guardar notas como gustos)
-    extract_key_facts_with_ai(text_content, is_note_action)
+    # 2. PROCESOS EN SEGUNDO PLANO
+    extract_key_facts_with_ai(text_content, is_tool_action)
     update_mood_with_ai(text_content)
     memory = load_memory()
 
@@ -283,7 +364,8 @@ def respond(message, history):
         if search_results:
             web_context = "\n" + search_results
 
-    full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + get_memory_context() + reminder_context + web_context
+    tool_execution_context = reminder_context + snippet_context
+    full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + get_memory_context() + tool_execution_context + web_context
     messages = [{"role": "system", "content": full_system_instruction}]
 
     for entry in memory.get("historial", [])[-20:]:
@@ -339,7 +421,7 @@ aiko_card_html = """
         <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" alt="Aiko 2D">
     </div>
     <h3 style="margin-top: 15px; color: #333; font-weight: 700; margin-bottom: 2px;">Aiko 🌸</h3>
-    <p style="font-size: 13px; color: #666; margin: 0;">✨ Tu compañera con herramientas de tareas</p>
+    <p style="font-size: 13px; color: #666; margin: 0;">✨ Tu compañera con herramientas de tareas y código</p>
 </div>
 """
 
