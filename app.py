@@ -5,6 +5,7 @@ import urllib.parse
 import gradio as gr
 from groq import Groq
 from supabase import create_client, Client
+from duckduckgo_search import DDGS
 
 # --- CONFIGURACIÓN DE CLIENTES ---
 api_key = os.environ.get("GROQ_API_KEY")
@@ -53,7 +54,6 @@ def load_memory():
     except Exception as e:
         print(f"❌ Error al conectar con Supabase al cargar: {e}")
 
-    # Devuelve copia local temporal solo si falla la red, SIN tocar Supabase
     return DEFAULT_MEMORY.copy()
 
 def save_memory(memory_data):
@@ -111,44 +111,33 @@ def get_memory_context():
     context += "=========================================="
     return context
 
-# --- DETECCIÓN DIRECTA Y GENERACIÓN DE IMÁGENES ---
-def check_image_generation_intent(message):
-    """Detecta de forma directa e infalible si el usuario quiere una imagen."""
+# --- BÚSQUEDA WEB EN TIEMPO REAL ---
+def check_web_search_intent(message):
+    """Comprueba si el usuario está preguntando algo de actualidad que requiere buscar en la web."""
     msg = message.lower()
     keywords = [
-        "dibuja", "dibújame", "dibujame", "crea una imagen", "genera una imagen", 
-        "haz una imagen", "hazme una imagen", "haz un dibujo", "hazme un dibujo", 
-        "imagen de", "dibujo de", "foto de", "hazme un arte"
+        "clima", "tiempo en", "noticias", "noticia", "quién es el actual", "quien es el actual",
+        "precio de", "resultado de", "qué pasó hoy", "que paso hoy", "última hora", "ultima hora",
+        "busca en internet", "busca en la web", "cuándo sale", "cuando sale", "estreno de"
     ]
     return any(kw in msg for kw in keywords)
 
-def generate_image_url(user_prompt):
-    """Traduce la idea a un prompt optimizado y devuelve la URL de Pollinations.ai"""
-    clean_prompt = user_prompt.lower()
-    for kw in ["aiko", "dibuja", "dibújame", "dibujame", "crea una imagen de", "genera una imagen de", "haz una imagen de", "hazme una imagen de", "hazme un dibujo de", "haz un dibujo de", "imagen de", "dibujo de"]:
-        clean_prompt = clean_prompt.replace(kw, "")
-    
-    clean_prompt = clean_prompt.strip()
-    if not clean_prompt:
-        clean_prompt = user_prompt
-
+def search_web(query):
+    """Ejecuta una búsqueda ligera en DuckDuckGo y devuelve los datos clave."""
     try:
-        translation_prompt = (
-            f"Convert this image description into a detailed English prompt for AI art (anime style): '{clean_prompt}'. "
-            "Output ONLY the English text without explanation or quotes."
-        )
-        completion = client.chat.completions.create(
-            model=MODEL_FAST,
-            messages=[{"role": "user", "content": translation_prompt}],
-            temperature=0.5,
-            max_tokens=60,
-        )
-        english_prompt = completion.choices[0].message.content.strip()
-    except Exception:
-        english_prompt = clean_prompt
-
-    encoded_prompt = urllib.parse.quote(english_prompt)
-    return f"https://pollinations.ai/p/{encoded_prompt}?width=800&height=600&seed=42&model=flux"
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=3))
+            if not results:
+                return None
+            
+            search_data = "\n=== INFORMACIÓN EN TIEMPO REAL OBTENIDA DE LA WEB ===\n"
+            for r in results:
+                search_data += f"- {r.get('title')}: {r.get('body')}\n"
+            search_data += "======================================================\n"
+            return search_data
+    except Exception as e:
+        print(f"Error realizando la búsqueda web: {e}")
+        return None
 
 AIKO_BASE_INSTRUCTION = (
     "Eres Aiko, una chica virtual cercana, dulce y amigable con estética anime.\n"
@@ -157,7 +146,8 @@ AIKO_BASE_INSTRUCTION = (
     "- MANTÉN TUS RESPUESTAS CORTAS Y CONCISAS: Escribe entre 1 y 3 oraciones como regla general.\n"
     "- No seas exageradamente servil ni aduladora. Sé una amiga cercana con personalidad propia.\n"
     "- Usa emojis de forma moderada (máximo 1 o 2 por mensaje).\n"
-    "- REGLA DE MEMORIA: Usa la memoria del usuario de forma sutil y orgánica."
+    "- REGLA DE MEMORIA: Usa la memoria del usuario de forma sutil y orgánica.\n"
+    "- Si se te proporciona información de la web, úsala para responder la pregunta de forma actualizada."
 )
 
 def respond(message, history):
@@ -168,23 +158,18 @@ def respond(message, history):
     if not text_content:
         return "Por favor, escribe un mensaje."
 
-    # 1. CASO GENERAR IMAGEN
-    if check_image_generation_intent(text_content):
-        image_url = generate_image_url(text_content)
-        bot_response = f"¡Aquí tienes el dibujo que me pediste! 🌸✨\n\n![Dibujo de Aiko]({image_url})"
-        
-        memory = load_memory()
-        memory["historial"].append({"role": "user", "content": text_content})
-        memory["historial"].append({"role": "assistant", "content": bot_response})
-        save_memory(memory)
-        
-        return bot_response
-
-    # 2. CONVERSACIÓN NORMAL
+    # 1. CASO CONVERSACIÓN / BÚSQUEDA WEB
     extract_key_facts_with_ai(text_content)
     memory = load_memory()
 
-    full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + get_memory_context()
+    web_context = ""
+    if check_web_search_intent(text_content):
+        print(f"🔍 Ejecutando búsqueda web para: '{text_content}'")
+        search_results = search_web(text_content)
+        if search_results:
+            web_context = "\n" + search_results
+
+    full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + get_memory_context() + web_context
     messages = [{"role": "system", "content": full_system_instruction}]
 
     for entry in memory.get("historial", [])[-20:]:
@@ -239,7 +224,7 @@ aiko_card_html = """
         <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" alt="Aiko 2D">
     </div>
     <h3 style="margin-top: 15px; color: #333; font-weight: 700; margin-bottom: 2px;">Aiko 🌸</h3>
-    <p style="font-size: 13px; color: #666; margin: 0;">✨ Tu compañera virtual</p>
+    <p style="font-size: 13px; color: #666; margin: 0;">✨ Tu compañera virtual (Web Conectada)</p>
 </div>
 """
 
