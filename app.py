@@ -25,6 +25,7 @@ DEFAULT_MEMORY = {
         "Es el creador de Aiko",
         "Le gusta la estética 2D"
     ],
+    "estado_animo": "alegre 🌸",
     "historial": []
 }
 
@@ -47,6 +48,7 @@ def load_memory():
                 data.setdefault("historial", [])
                 data.setdefault("usuario", DEFAULT_MEMORY["usuario"])
                 data.setdefault("datos_clave", DEFAULT_MEMORY["datos_clave"])
+                data.setdefault("estado_animo", "alegre 🌸")
                 print("✅ Memoria cargada con éxito desde Supabase.")
                 return data
         else:
@@ -98,9 +100,37 @@ def extract_key_facts_with_ai(user_message):
     except Exception as e:
         print(f"Error extrayendo memoria: {e}")
 
+def update_mood_with_ai(user_message):
+    """Actualiza el estado de ánimo de Aiko dinámicamente según la charla."""
+    if not client or not user_message.strip():
+        return
+    prompt = (
+        "Elige un estado de ánimo para Aiko entre estas opciones exactas: 'alegre', 'cariñosa', 'pensativa', 'entusiasmada', 'tranquila'. "
+        "Responde ÚNICAMENTE con una de esas palabras según el tono ideal para responder.\n\n"
+        f"Mensaje del usuario: \"{user_message}\""
+    )
+    try:
+        completion = client.chat.completions.create(
+            model=MODEL_FAST,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.4,
+            max_tokens=15,
+        )
+        mood = completion.choices[0].message.content.strip().lower()
+        valid_moods = ["alegre", "cariñosa", "pensativa", "entusiasmada", "tranquila"]
+        for vm in valid_moods:
+            if vm in mood:
+                memory = load_memory()
+                memory["estado_animo"] = vm
+                save_memory(memory)
+                break
+    except Exception as e:
+        print(f"Error actualizando estado de ánimo: {e}")
+
 def get_memory_context():
     memory = load_memory()
-    context = "\n=== LO QUE RECUERDAS SOBRE EL USUARIO ===\n"
+    context = "\n=== LO QUE RECUERDAS SOBRE EL USUARIO Y TU ESTADO ===\n"
+    context += f"- Tu estado de ánimo actual: {memory.get('estado_animo', 'alegre')}\n"
     if memory.get("usuario"):
         for k, v in memory.get("usuario", {}).items():
             context += f"- {k.capitalize()}: {v}\n"
@@ -108,7 +138,7 @@ def get_memory_context():
         context += "- Hechos recordados:\n"
         for item in memory.get("datos_clave", []):
             context += f"  * {item}\n"
-    context += "=========================================="
+    context += "====================================================\n"
     return context
 
 # --- BÚSQUEDA WEB EN TIEMPO REAL ---
@@ -116,9 +146,9 @@ def check_web_search_intent(message):
     """Comprueba si el usuario está preguntando algo de actualidad que requiere buscar en la web."""
     msg = message.lower()
     keywords = [
-        "clima", "tiempo en", "noticias", "noticia", "quién es el actual", "quien es el actual",
-        "precio de", "resultado de", "qué pasó hoy", "que paso hoy", "última hora", "ultima hora",
-        "busca en internet", "busca en la web", "cuándo sale", "cuando sale", "estreno de"
+        "clima", "tiempo", "temperatura", "noticias", "noticia", "quién es", "quien es",
+        "precio de", "resultado", "qué pasó", "que paso", "última hora", "ultima hora",
+        "busca", "internet", "web", "cuándo sale", "cuando sale", "estreno", "hoy", "actualidad"
     ]
     return any(kw in msg for kw in keywords)
 
@@ -146,8 +176,9 @@ AIKO_BASE_INSTRUCTION = (
     "- MANTÉN TUS RESPUESTAS CORTAS Y CONCISAS: Escribe entre 1 y 3 oraciones como regla general.\n"
     "- No seas exageradamente servil ni aduladora. Sé una amiga cercana con personalidad propia.\n"
     "- Usa emojis de forma moderada (máximo 1 o 2 por mensaje).\n"
+    "- ESTADO DE ÁNIMO: Adapta sutilmente tu tono al 'estado de ánimo actual' indicado en tu memoria.\n"
     "- REGLA DE MEMORIA: Usa la memoria del usuario de forma sutil y orgánica.\n"
-    "- Si se te proporciona información de la web, úsala para responder la pregunta de forma actualizada."
+    "- Si se te proporciona información de la web, úsala para responder de forma actualizada de manera natural."
 )
 
 def respond(message, history):
@@ -158,8 +189,9 @@ def respond(message, history):
     if not text_content:
         return "Por favor, escribe un mensaje."
 
-    # 1. CASO CONVERSACIÓN / BÚSQUEDA WEB
+    # PROCESOS EN SEGUNDO PLANO (Memoria, Ánimo y Web)
     extract_key_facts_with_ai(text_content)
+    update_mood_with_ai(text_content)
     memory = load_memory()
 
     web_context = ""
@@ -224,7 +256,7 @@ aiko_card_html = """
         <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" alt="Aiko 2D">
     </div>
     <h3 style="margin-top: 15px; color: #333; font-weight: 700; margin-bottom: 2px;">Aiko 🌸</h3>
-    <p style="font-size: 13px; color: #666; margin: 0;">✨ Tu compañera virtual (Web Conectada)</p>
+    <p style="font-size: 13px; color: #666; margin: 0;">✨ Tu compañera con emociones</p>
 </div>
 """
 
