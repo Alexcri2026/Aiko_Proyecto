@@ -53,7 +53,7 @@ def load_memory():
                 print("✅ Memoria cargada con éxito desde Supabase.")
                 return data
         else:
-            print("⚠️ Fila id=1 no encontrada en Supabase.")
+            print("⚠️ Fila id=1 não encontrada en Supabase.")
     except Exception as e:
         print(f"❌ Error al conectar con Supabase al cargar: {e}")
 
@@ -144,54 +144,45 @@ def get_memory_context():
     context += "====================================================\n"
     return context
 
-# --- BÚSQUEDA WEB EN TIEMPO REAL ROBUSTA (HTTP API REST) ---
+# --- BÚSQUEDA WEB Y CLIMA EN TIEMPO REAL ---
 def check_web_search_intent(message):
-    """Detecta de forma amplia si el mensaje requiere información en vivo."""
+    """Detecta si el mensaje solicita datos actuales."""
     msg = message.lower()
     keywords = [
         "clima", "tiempo", "temperatura", "noticias", "noticia", "quién es", "quien es",
         "precio", "resultado", "qué pasó", "que paso", "última hora", "ultima hora",
         "busca", "internet", "web", "cuándo", "cuando", "estreno", "hoy", "actualidad",
-        "dame información", "cuál es el", "cual es el", "dime sobre", "madrid", "parís", "paris"
+        "madrid", "parís", "paris", "barcelona"
     ]
     return any(kw in msg for kw in keywords)
 
 def search_web(query):
-    """Ejecuta búsquedas HTTP directas e inmunes a bloqueos de IP de Render."""
-    clean_query = query.lower()
+    """Obtiene clima mediante wttr.in o datos web en tiempo real."""
+    q_lower = query.lower()
+
+    # 1. Si es una consulta de clima, usamos la API directa wttr.in (100% estable)
+    if any(w in q_lower for w in ["clima", "tiempo", "temperatura"]):
+        city = "Madrid"
+        if "madrid" in q_lower: city = "Madrid"
+        elif "parís" in q_lower or "paris" in q_lower: city = "Paris"
+        elif "barcelona" in q_lower: city = "Barcelona"
+        elif "bogotá" in q_lower or "bogota" in q_lower: city = "Bogota"
+        elif "méxico" in q_lower or "mexico" in q_lower: city = "Mexico_City"
+
+        try:
+            r = requests.get(f"https://wttr.in/{city}?format=3", headers={"User-Agent": "curl"}, timeout=4)
+            if r.status_code == 200:
+                weather_text = r.text.strip()
+                return f"\n=== INFORMACIÓN DE CLIMA EN TIEMPO REAL ===\n• {weather_text}\n===========================================\n"
+        except Exception as e:
+            print(f"Error consultando wttr.in: {e}")
+
+    # 2. Búsqueda general con DuckDuckGo
+    clean_query = q_lower
     for kw in ["aiko", "busca en internet", "busca en la web", "busca"]:
         clean_query = clean_query.replace(kw, "")
     clean_query = clean_query.strip() or query
 
-    # 1. Intento por API HTTP de DuckDuckGo JSON (Ultra ligera)
-    try:
-        url = f"https://api.duckduckgo.com/?q={urllib.parse.quote(clean_query)}&format=json&no_html=1&skip_disambig=1"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        resp = requests.get(url, headers=headers, timeout=5)
-
-        if resp.status_code == 200:
-            data = resp.json()
-            abstract = data.get("AbstractText", "")
-            results_list = data.get("RelatedTopics", [])
-
-            text_output = ""
-            if abstract:
-                text_output += f"• Resumen principal: {abstract}\n"
-            
-            count = 0
-            for topic in results_list:
-                if isinstance(topic, dict) and "Text" in topic:
-                    text_output += f"• {topic['Text']}\n"
-                    count += 1
-                    if count >= 3:
-                        break
-
-            if text_output.strip():
-                return f"\n=== INFORMACIÓN DE INTERNET EN TIEMPO REAL ===\n{text_output}===============================================\n"
-    except Exception as e:
-        print(f"Error en API DuckDuckGo HTTP: {e}")
-
-    # 2. Intento con la librería DDGS estándar como alternativa
     try:
         with DDGS() as ddgs:
             results = list(ddgs.text(clean_query, max_results=3))
@@ -215,7 +206,7 @@ AIKO_BASE_INSTRUCTION = (
     "- Usa emojis de forma moderada (máximo 1 o 2 por mensaje).\n"
     "- ESTADO DE ÁNIMO: Adapta sutilmente tu tono al 'estado de ánimo actual' indicado en tu memoria.\n"
     "- REGLA DE MEMORIA: Usa la memoria del usuario de forma sutil y orgánica.\n"
-    "- BÚSQUEDA WEB: Si recibes información en 'INFORMACIÓN DE INTERNET EN TIEMPO REAL', tómala como tu propia información actual y responde directamente a la duda del usuario sin poner ninguna excusa de conexión."
+    "- BÚSQUEDA WEB: Si recibes un bloque con información en tiempo real o de clima, úsalo obligatoriamente como tu conocimiento actual para responder de inmediato sin poner excusas."
 )
 
 def respond(message, history):
@@ -233,11 +224,11 @@ def respond(message, history):
 
     web_context = ""
     if check_web_search_intent(text_content):
-        print(f"🔍 Ejecutando búsqueda web HTTP para: '{text_content}'")
+        print(f"🔍 Ejecutando búsqueda / clima para: '{text_content}'")
         search_results = search_web(text_content)
         if search_results:
             web_context = "\n" + search_results
-            print("✅ Datos web obtenidos y agregados al contexto.")
+            print("✅ Datos obtenidos con éxito.")
 
     full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + get_memory_context() + web_context
     messages = [{"role": "system", "content": full_system_instruction}]
