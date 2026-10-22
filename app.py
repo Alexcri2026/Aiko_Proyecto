@@ -90,6 +90,7 @@ def extract_key_facts_with_ai(user_message):
                       {"role": "user", "content": extraction_prompt}],
             temperature=0.2,
             max_tokens=100,
+            tool_choice="none"
         )
         fact = completion.choices[0].message.content.strip()
         if fact and "NINGUNO" not in fact.upper():
@@ -115,6 +116,7 @@ def update_mood_with_ai(user_message):
             messages=[{"role": "user", "content": prompt}],
             temperature=0.4,
             max_tokens=15,
+            tool_choice="none"
         )
         mood = completion.choices[0].message.content.strip().lower()
         valid_moods = ["alegre", "cariñosa", "pensativa", "entusiasmada", "tranquila"]
@@ -189,7 +191,7 @@ def respond(message, history):
     if not text_content:
         return "Por favor, escribe un mensaje."
 
-    # PROCESOS EN SEGUNDO PLANO (Memoria, Ánimo y Web)
+    # PROCESOS EN SEGUNDO PLANO
     extract_key_facts_with_ai(text_content)
     update_mood_with_ai(text_content)
     memory = load_memory()
@@ -219,6 +221,7 @@ def respond(message, history):
             messages=messages,
             temperature=0.8,
             max_tokens=256,
+            tool_choice="none"  # <-- Evita que el modelo intente invocar herramientas internas y lance el error 400
         )
         bot_response = completion.choices[0].message.content.strip()
 
