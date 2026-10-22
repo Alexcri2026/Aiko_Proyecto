@@ -3,6 +3,7 @@ import json
 import re
 import urllib.parse
 import gradio as gr
+import requests
 from groq import Groq
 from supabase import create_client, Client
 from duckduckgo_search import DDGS
@@ -143,9 +144,9 @@ def get_memory_context():
     context += "====================================================\n"
     return context
 
-# --- BÚSQUEDA WEB EN TIEMPO REAL ROBUSTA ---
+# --- BÚSQUEDA WEB EN TIEMPO REAL ROBUSTA (HTTP API REST) ---
 def check_web_search_intent(message):
-    """Detecta si el mensaje solicita datos de actualidad o búsquedas."""
+    """Detecta de forma amplia si el mensaje requiere información en vivo."""
     msg = message.lower()
     keywords = [
         "clima", "tiempo", "temperatura", "noticias", "noticia", "quién es", "quien es",
@@ -156,29 +157,54 @@ def check_web_search_intent(message):
     return any(kw in msg for kw in keywords)
 
 def search_web(query):
-    """Ejecuta la búsqueda en DuckDuckGo capturando posibles fallos."""
+    """Ejecuta búsquedas HTTP directas e inmunes a bloqueos de IP de Render."""
     clean_query = query.lower()
     for kw in ["aiko", "busca en internet", "busca en la web", "busca"]:
         clean_query = clean_query.replace(kw, "")
-    clean_query = clean_query.strip()
-    
-    if not clean_query:
-        clean_query = query
+    clean_query = clean_query.strip() or query
 
+    # 1. Intento por API HTTP de DuckDuckGo JSON (Ultra ligera)
+    try:
+        url = f"https://api.duckduckgo.com/?q={urllib.parse.quote(clean_query)}&format=json&no_html=1&skip_disambig=1"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        resp = requests.get(url, headers=headers, timeout=5)
+
+        if resp.status_code == 200:
+            data = resp.json()
+            abstract = data.get("AbstractText", "")
+            results_list = data.get("RelatedTopics", [])
+
+            text_output = ""
+            if abstract:
+                text_output += f"• Resumen principal: {abstract}\n"
+            
+            count = 0
+            for topic in results_list:
+                if isinstance(topic, dict) and "Text" in topic:
+                    text_output += f"• {topic['Text']}\n"
+                    count += 1
+                    if count >= 3:
+                        break
+
+            if text_output.strip():
+                return f"\n=== INFORMACIÓN DE INTERNET EN TIEMPO REAL ===\n{text_output}===============================================\n"
+    except Exception as e:
+        print(f"Error en API DuckDuckGo HTTP: {e}")
+
+    # 2. Intento con la librería DDGS estándar como alternativa
     try:
         with DDGS() as ddgs:
-            results = list(ddgs.text(clean_query, max_results=4))
-            if not results:
-                return None
-            
-            search_data = "\n=== INFORMACIÓN DE INTERNET OBTENIDA EN TIEMPO REAL ===\n"
-            for r in results:
-                search_data += f"• {r.get('title')}: {r.get('body')}\n"
-            search_data += "=======================================================\n"
-            return search_data
+            results = list(ddgs.text(clean_query, max_results=3))
+            if results:
+                search_data = "\n=== INFORMACIÓN DE INTERNET EN TIEMPO REAL ===\n"
+                for r in results:
+                    search_data += f"• {r.get('title')}: {r.get('body')}\n"
+                search_data += "===============================================\n"
+                return search_data
     except Exception as e:
-        print(f"❌ Error realizando la búsqueda web con DuckDuckGo: {e}")
-        return None
+        print(f"Error en DDGS: {e}")
+
+    return None
 
 AIKO_BASE_INSTRUCTION = (
     "Eres Aiko, una chica virtual cercana, dulce y amigable con estética anime.\n"
@@ -189,7 +215,7 @@ AIKO_BASE_INSTRUCTION = (
     "- Usa emojis de forma moderada (máximo 1 o 2 por mensaje).\n"
     "- ESTADO DE ÁNIMO: Adapta sutilmente tu tono al 'estado de ánimo actual' indicado en tu memoria.\n"
     "- REGLA DE MEMORIA: Usa la memoria del usuario de forma sutil y orgánica.\n"
-    "- REGLA BÚSQUEDA WEB: Si recibes una sección 'INFORMACIÓN DE INTERNET OBTENIDA EN TIEMPO REAL', debes responder a la pregunta utilizando ESOS DATOS como tu conocimiento actual. JAMÁS digas que 'no puedes acceder a datos en tiempo real' si se te incluye dicho bloque."
+    "- BÚSQUEDA WEB: Si recibes información en 'INFORMACIÓN DE INTERNET EN TIEMPO REAL', tómala como tu propia información actual y responde directamente a la duda del usuario sin poner ninguna excusa de conexión."
 )
 
 def respond(message, history):
@@ -207,12 +233,11 @@ def respond(message, history):
 
     web_context = ""
     if check_web_search_intent(text_content):
-        print(f"🔍 Ejecutando búsqueda web para: '{text_content}'")
+        print(f"🔍 Ejecutando búsqueda web HTTP para: '{text_content}'")
         search_results = search_web(text_content)
         if search_results:
             web_context = "\n" + search_results
-        else:
-            print("⚠️ No se obtuvieron resultados de la búsqueda web.")
+            print("✅ Datos web obtenidos y agregados al contexto.")
 
     full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + get_memory_context() + web_context
     messages = [{"role": "system", "content": full_system_instruction}]
