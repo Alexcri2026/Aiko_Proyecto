@@ -27,7 +27,7 @@ DEFAULT_MEMORY = {
     "historial": []
 }
 
-# --- MODELOS FIJOS DE GROQ ---
+# --- MODELOS FIJOS DE GROQ (NUNCA CAMBIAR) ---
 MODEL_CHAT = "openai/gpt-oss-120b"
 MODEL_FAST = "openai/gpt-oss-20b"
 
@@ -96,44 +96,41 @@ def get_memory_context():
     context += "=========================================="
     return context
 
-# --- GENERACIÓN DE IMÁGENES ---
+# --- DETECCIÓN DIRECTA Y GENERACIÓN DE IMÁGENES ---
 def check_image_generation_intent(message):
-    """Comprueba si el usuario está pidiendo generar/dibujar una imagen."""
-    prompt = (
-        "Analiza el mensaje del usuario. ¿Te está pidiendo crear, generar, dibujar o hacer una imagen/dibujo/foto?\n"
-        "Responde EXACTAMENTE con 'SI' o 'NO'. Nada más.\n\n"
-        f"Mensaje: \"{message}\""
-    )
-    try:
-        completion = client.chat.completions.create(
-            model=MODEL_FAST,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.0,
-            max_tokens=5,
-        )
-        res = completion.choices[0].message.content.strip().upper()
-        return "SI" in res
-    except Exception:
-        return False
+    """Detecta de forma directa e infalible si el usuario quiere una imagen."""
+    msg = message.lower()
+    keywords = [
+        "dibuja", "dibújame", "dibujame", "crea una imagen", "genera una imagen", 
+        "haz una imagen", "hazme una imagen", "haz un dibujo", "hazme un dibujo", 
+        "imagen de", "dibujo de", "foto de", "hazme un arte"
+    ]
+    return any(kw in msg for kw in keywords)
 
 def generate_image_url(user_prompt):
-    """Traduce la idea a un prompt optimizado en inglés y devuelve la URL de Pollinations.ai"""
-    translation_prompt = (
-        "Convierte la petición del usuario en un prompt detallado en INGLÉS para un generador de imágenes de IA.\n"
-        "Añade detalles de estilo (anime, vibrant, detailed, 4k).\n"
-        "Responde ÚNICAMENTE con el prompt en inglés sin explicaciones ni comillas.\n\n"
-        f"Petición: \"{user_prompt}\""
-    )
+    """Limpia el mensaje, traduce la idea a un prompt optimizado y devuelve la URL de Pollinations.ai"""
+    clean_prompt = user_prompt.lower()
+    for kw in ["aiko", "dibuja", "dibújame", "dibujame", "crea una imagen de", "genera una imagen de", "haz una imagen de", "hazme una imagen de", "hazme un dibujo de", "haz un dibujo de", "imagen de", "dibujo de"]:
+        clean_prompt = clean_prompt.replace(kw, "")
+    
+    clean_prompt = clean_prompt.strip()
+    if not clean_prompt:
+        clean_prompt = user_prompt
+
     try:
+        translation_prompt = (
+            f"Convert this image description into a detailed English prompt for AI art (anime style): '{clean_prompt}'. "
+            "Output ONLY the English text without explanation or quotes."
+        )
         completion = client.chat.completions.create(
             model=MODEL_FAST,
             messages=[{"role": "user", "content": translation_prompt}],
-            temperature=0.7,
-            max_tokens=100,
+            temperature=0.5,
+            max_tokens=60,
         )
         english_prompt = completion.choices[0].message.content.strip()
     except Exception:
-        english_prompt = user_prompt
+        english_prompt = clean_prompt
 
     encoded_prompt = urllib.parse.quote(english_prompt)
     return f"https://pollinations.ai/p/{encoded_prompt}?width=800&height=600&seed=42&model=flux"
@@ -156,7 +153,7 @@ def respond(message, history):
     if not text_content:
         return "Por favor, escribe un mensaje."
 
-    # 1. CASO GENERAR IMAGEN
+    # 1. CASO GENERAR IMAGEN (DETECCIÓN RÁPIDA POR PALABRAS CLAVE)
     if check_image_generation_intent(text_content):
         image_url = generate_image_url(text_content)
         bot_response = f"¡Aquí tienes el dibujo que me pediste! 🌸✨\n\n![Dibujo de Aiko]({image_url})"
@@ -211,35 +208,4 @@ aiko_card_html = """
     50% { transform: translateY(-4px) scale(1.01); }
 }
 .aiko-card {
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%);
-    border-radius: 20px; padding: 20px; box-shadow: 0 8px 25px rgba(0,0,0,0.08); height: 100%;
-}
-.aiko-image-container {
-    width: 220px; height: 320px; border-radius: 15px; overflow: hidden;
-    border: 4px solid #ffffff; box-shadow: 0 8px 20px rgba(255, 105, 180, 0.25);
-    animation: breathe 4s ease-in-out infinite;
-}
-.aiko-image-container img { width: 100%; height: 100%; object-fit: cover; object-position: top center; }
-</style>
-<div class="aiko-card">
-    <div class="aiko-image-container">
-        <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" alt="Aiko 2D">
-    </div>
-    <h3 style="margin-top: 15px; color: #333; font-weight: 700; margin-bottom: 2px;">Aiko 🌸</h3>
-    <p style="font-size: 13px; color: #666; margin: 0;">✨ Tu compañera virtual</p>
-</div>
-"""
-
-with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
-    gr.Markdown("# ✨ Aiko AI Companion")
-    with gr.Row():
-        with gr.Column(scale=1, min_width=280):
-            gr.HTML(aiko_card_html)
-        with gr.Column(scale=2):
-            gr.ChatInterface(fn=respond)
-
-port = int(os.environ.get("PORT", 7860))
-
-if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=port)
+    display: flex; flex-direction: column; align-items: center; justify-content: center
