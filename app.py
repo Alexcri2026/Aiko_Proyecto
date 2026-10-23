@@ -17,8 +17,8 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY")
 eleven_client = ElevenLabs(api_key=ELEVENLABS_API_KEY) if ELEVENLABS_API_KEY else None
 
-# ID de la voz predeterminada en ElevenLabs (Puedes cambiarla por el ID de la voz que prefieras)
-AIKO_VOICE_ID = os.environ.get("AIKO_VOICE_ID", "21m00Tcm4TlvDq8ikWAM") # Rachel por defecto o la que elijas
+# ID de la voz predeterminada en ElevenLabs
+AIKO_VOICE_ID = os.environ.get("AIKO_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
 
 # Limpieza preventiva de la URL de Supabase
 if SUPABASE_URL:
@@ -42,7 +42,6 @@ DEFAULT_MEMORY = {
 def load_memory():
     """Carga la memoria desde la base de datos Supabase"""
     if not supabase:
-        print("Advertencia: Supabase no está configurado.")
         return DEFAULT_MEMORY
 
     try:
@@ -67,7 +66,6 @@ def load_memory():
 def save_memory(memory_data):
     """Guarda la memoria actualizada directamente en Supabase"""
     if not supabase:
-        print("Advertencia: No se pudo guardar en Supabase (falta configuración).")
         return
 
     try:
@@ -101,10 +99,9 @@ def handle_reminders_tool(user_message):
         memory = load_memory()
         memory["recordatorios"] = []
         save_memory(memory)
-        print("🗑️ Notas limpiadas en Supabase.")
         return "\n[ACCIÓN REALIZADA]: Has borrado todas las notas cotidianas.\n"
 
-    # 3. GUARDAR NOTAS (Extracción automática de contenido)
+    # 3. GUARDAR NOTAS
     keywords_guardar = ["anota", "anotar", "recuérdame", "recuerdame", "apunta", "anotame", "guarda", "guardar nota", "nota que"]
     for kw in keywords_guardar:
         if kw in msg_lower:
@@ -119,7 +116,6 @@ def handle_reminders_tool(user_message):
                     if texto_nota not in memory["recordatorios"]:
                         memory["recordatorios"].append(texto_nota)
                         save_memory(memory)
-                        print(f"✅ ¡NOTA GUARDADA EN SUPABASE!: \"{texto_nota}\"")
                         return f"\n[ACCIÓN REALIZADA]: Guardada nota personal: \"{texto_nota}\".\n"
 
     return ""
@@ -247,7 +243,6 @@ def text_to_speech_elevenlabs(text):
             output_format="mp3_22050_32",
         )
         
-        # Guardar en un archivo temporal para que Gradio lo pueda reproducir
         audio_path = "/tmp/aiko_voice.mp3"
         with open(audio_path, "wb") as f:
             for chunk in audio_generator:
@@ -257,27 +252,29 @@ def text_to_speech_elevenlabs(text):
         print(f"Error generando audio con ElevenLabs: {e}")
         return None
 
-# --- FUNCIÓN PRINCIPAL DE CHAT CON SOPORTE DE VOZ OPCIONAL ---
-def respond_with_voice_toggle(message, history, voice_enabled):
+# --- LÓGICA DE RESPUESTA PARA BLOCKS ---
+def chat_respond(message, history, voice_enabled):
     if not client:
-        return "Error: La clave GROQ_API_KEY no está configurada en Render.", None
+        yield history + [[message, "Error: La clave GROQ_API_KEY no está configurada en Render."]], None
+        return
 
     if not message or not str(message).strip():
-        return "Por favor, escribe un mensaje.", None
+        yield history + [[message, "Por favor, escribe un mensaje."]], None
+        return
 
     model_to_use = get_best_chat_model()
 
-    # 1. Procesar notas y extraer datos clave
+    # 1. Notas y datos clave
     reminder_context = handle_reminders_tool(message)
     extract_key_facts_with_ai(message, model_to_use)
     
     memory = load_memory()
 
-    # 2. Construir el prompt
+    # 2. Construir prompt
     full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + get_memory_context() + "\n" + reminder_context
     messages = [{"role": "system", "content": full_system_instruction}]
 
-    # 3. Cargar historial
+    # 3. Historial
     saved_history = memory.get("historial", [])
     for entry in saved_history[-20:]:
         if isinstance(entry, dict):
@@ -287,6 +284,8 @@ def respond_with_voice_toggle(message, history, voice_enabled):
                 messages.append({"role": r, "content": str(c)})
 
     messages.append({"role": "user", "content": str(message)})
+
+    updated_history = history + [[message, ""]]
 
     try:
         completion = client.chat.completions.create(
@@ -302,15 +301,19 @@ def respond_with_voice_toggle(message, history, voice_enabled):
         memory["historial"].append({"role": "assistant", "content": bot_response})
         save_memory(memory)
 
-        # 5. Generar audio solo si el botón de voz está activado
+        updated_history[-1][1] = bot_response
+
+        # 5. Generar audio si está activado
         audio_output = None
         if voice_enabled:
             audio_output = text_to_speech_elevenlabs(bot_response)
 
-        return bot_response, audio_output
+        yield updated_history, audio_output
 
     except Exception as e:
-        return f"Ocurrió un error con el modelo {model_to_use}: {str(e)}", None
+        err_msg = f"Ocurrió un error con el modelo {model_to_use}: {str(e)}"
+        updated_history[-1][1] = err_msg
+        yield updated_history, None
 
 theme = gr.themes.Soft(
     primary_hue="indigo",
@@ -323,13 +326,11 @@ aiko_card_html = """
     0%, 100% { transform: translateY(0px) scale(1); }
     50% { transform: translateY(-4px) scale(1.01); }
 }
-
 @keyframes blink {
     0%, 85%, 100% { filter: brightness(1); }
     88% { filter: brightness(0.75) contrast(1.05); }
     91% { filter: brightness(1); }
 }
-
 .aiko-card {
     display: flex;
     flex-direction: column;
@@ -341,7 +342,6 @@ aiko_card_html = """
     box-shadow: 0 8px 25px rgba(0,0,0,0.08);
     height: 100%;
 }
-
 .aiko-image-container {
     width: 220px;
     height: 320px;
@@ -351,7 +351,6 @@ aiko_card_html = """
     box-shadow: 0 8px 20px rgba(255, 105, 180, 0.25);
     animation: breathe 4s ease-in-out infinite, blink 5s ease-in-out infinite;
 }
-
 .aiko-image-container img {
     width: 100%;
     height: 100%;
@@ -369,22 +368,29 @@ aiko_card_html = """
 </div>
 """
 
+# --- CONSTRUCCIÓN DE LA INTERFAZ CON BLOCKS ---
 with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
     gr.Markdown("# ✨ Aiko AI Companion")
     
     with gr.Row():
         with gr.Column(scale=1, min_width=280):
             gr.HTML(aiko_card_html)
-            # Botón interruptor para activar o desactivar la voz de Aiko
+            # Botón interruptor para activar/desactivar la voz
             voice_toggle = gr.Checkbox(label="🔊 Activar respuesta por voz (ElevenLabs)", value=False)
+            # Componente de Audio visible para escuchar la voz de Aiko
+            audio_output = gr.Audio(label="Voz de Aiko", autoplay=True, interactive=False)
             
         with gr.Column(scale=2):
-            # Interfaz de chat y reproductor de audio oculto/visible para la voz
-            chatbot = gr.ChatInterface(
-                fn=respond_with_voice_toggle,
-                additional_inputs=[voice_toggle],
-                additional_outputs=[gr.Audio(label="Voz de Aiko", autoplay=True, visible=True)]
-            )
+            chatbot_ui = gr.Chatbot(height=450)
+            msg_input = gr.Textbox(show_label=False, placeholder="Escribe un mensaje a Aiko...")
+            clear_btn = gr.Button("Limpiar chat")
+
+            # Conectar la lógica de envío de mensajes
+            msg_input.submit(chat_respond, inputs=[msg_input, chatbot_ui, voice_toggle], outputs=[chatbot_ui, audio_output])
+            # Limpiar cuadro de texto al enviar
+            msg_input.submit(lambda: "", outputs=[msg_input])
+            
+            clear_btn.click(lambda: ([], None), outputs=[chatbot_ui, audio_output])
 
 port = int(os.environ.get("PORT", 7860))
 
