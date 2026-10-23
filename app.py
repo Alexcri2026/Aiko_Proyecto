@@ -4,15 +4,23 @@ import re
 import gradio as gr
 from groq import Groq
 from supabase import create_client, Client
+from elevenlabs import ElevenLabs
 
-# Configuración de Clientes
+# --- CONFIGURACIÓN DE CLIENTES Y CREDENCIALES ---
 api_key = os.environ.get("GROQ_API_KEY")
 client = Groq(api_key=api_key) if api_key else None
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-# Limpieza preventiva de la URL de Supabase (quita barras finales si las hubiera)
+# Credencial de ElevenLabs para la voz de Aiko
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY")
+eleven_client = ElevenLabs(api_key=ELEVENLABS_API_KEY) if ELEVENLABS_API_KEY else None
+
+# ID de la voz predeterminada en ElevenLabs (Puedes cambiarla por el ID de la voz que prefieras)
+AIKO_VOICE_ID = os.environ.get("AIKO_VOICE_ID", "21m00Tcm4TlvDq8ikWAM") # Rachel por defecto o la que elijas
+
+# Limpieza preventiva de la URL de Supabase
 if SUPABASE_URL:
     SUPABASE_URL = SUPABASE_URL.rstrip("/")
 
@@ -227,26 +235,49 @@ def clean_response(text):
     cleaned = re.sub(r'(\b[:\s]*text)+$', '', cleaned)
     return cleaned.strip()
 
-def respond(message, history):
+def text_to_speech_elevenlabs(text):
+    """Convierte texto a audio usando ElevenLabs y devuelve la ruta del archivo temporal"""
+    if not eleven_client:
+        return None
+    try:
+        audio_generator = eleven_client.text_to_speech.convert(
+            voice_id=AIKO_VOICE_ID,
+            model_id="eleven_multilingual_v2",
+            text=text,
+            output_format="mp3_22050_32",
+        )
+        
+        # Guardar en un archivo temporal para que Gradio lo pueda reproducir
+        audio_path = "/tmp/aiko_voice.mp3"
+        with open(audio_path, "wb") as f:
+            for chunk in audio_generator:
+                f.write(chunk)
+        return audio_path
+    except Exception as e:
+        print(f"Error generando audio con ElevenLabs: {e}")
+        return None
+
+# --- FUNCIÓN PRINCIPAL DE CHAT CON SOPORTE DE VOZ OPCIONAL ---
+def respond_with_voice_toggle(message, history, voice_enabled):
     if not client:
-        return "Error: La clave GROQ_API_KEY no está configurada en Render."
+        return "Error: La clave GROQ_API_KEY no está configurada en Render.", None
 
     if not message or not str(message).strip():
-        return "Por favor, escribe un mensaje."
+        return "Por favor, escribe un mensaje.", None
 
     model_to_use = get_best_chat_model()
 
-    # 1. Procesar herramientas de notas y extraer datos clave en segundo plano
+    # 1. Procesar notas y extraer datos clave
     reminder_context = handle_reminders_tool(message)
     extract_key_facts_with_ai(message, model_to_use)
     
     memory = load_memory()
 
-    # 2. Construir el prompt con la instrucción base, la memoria y el contexto de notas
+    # 2. Construir el prompt
     full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + get_memory_context() + "\n" + reminder_context
     messages = [{"role": "system", "content": full_system_instruction}]
 
-    # 3. Cargar el historial desde Supabase
+    # 3. Cargar historial
     saved_history = memory.get("historial", [])
     for entry in saved_history[-20:]:
         if isinstance(entry, dict):
@@ -255,7 +286,6 @@ def respond(message, history):
             if c:
                 messages.append({"role": r, "content": str(c)})
 
-    # 4. Agregar mensaje actual
     messages.append({"role": "user", "content": str(message)})
 
     try:
@@ -267,15 +297,20 @@ def respond(message, history):
         )
         bot_response = clean_response(completion.choices[0].message.content)
 
-        # 5. Actualizar y guardar memoria permanente en Supabase
+        # 4. Guardar en Supabase
         memory["historial"].append({"role": "user", "content": message})
         memory["historial"].append({"role": "assistant", "content": bot_response})
         save_memory(memory)
 
-        return bot_response
+        # 5. Generar audio solo si el botón de voz está activado
+        audio_output = None
+        if voice_enabled:
+            audio_output = text_to_speech_elevenlabs(bot_response)
+
+        return bot_response, audio_output
 
     except Exception as e:
-        return f"Ocurrió un error con el modelo {model_to_use}: {str(e)}"
+        return f"Ocurrió un error con el modelo {model_to_use}: {str(e)}", None
 
 theme = gr.themes.Soft(
     primary_hue="indigo",
@@ -340,10 +375,15 @@ with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
     with gr.Row():
         with gr.Column(scale=1, min_width=280):
             gr.HTML(aiko_card_html)
+            # Botón interruptor para activar o desactivar la voz de Aiko
+            voice_toggle = gr.Checkbox(label="🔊 Activar respuesta por voz (ElevenLabs)", value=False)
             
         with gr.Column(scale=2):
-            gr.ChatInterface(
-                fn=respond
+            # Interfaz de chat y reproductor de audio oculto/visible para la voz
+            chatbot = gr.ChatInterface(
+                fn=respond_with_voice_toggle,
+                additional_inputs=[voice_toggle],
+                additional_outputs=[gr.Audio(label="Voz de Aiko", autoplay=True, visible=True)]
             )
 
 port = int(os.environ.get("PORT", 7860))
