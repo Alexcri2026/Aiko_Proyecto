@@ -8,6 +8,8 @@ from groq import Groq
 from supabase import create_client, Client
 from duckduckgo_search import DDGS
 
+print("🚀 INICIANDO APLICACIÓN AIKO DEPOSITANDO LOGS DE DIAGNÓSTICO...")
+
 # --- CONFIGURACIÓN DE CLIENTES ---
 api_key = os.environ.get("GROQ_API_KEY")
 client = Groq(api_key=api_key) if api_key else None
@@ -15,7 +17,17 @@ client = Groq(api_key=api_key) if api_key else None
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if (SUPABASE_URL and SUPABASE_KEY) else None
+print(f"🔍 ESTADO DE VARIABLES: SUPABASE_URL={'OK' if SUPABASE_URL else 'FALTA'}, SUPABASE_KEY={'OK' if SUPABASE_KEY else 'FALTA'}")
+
+supabase: Client = None
+if SUPABASE_URL and SUPABASE_KEY:
+    try:
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        print("✅ CLIENTE SUPABASE CREADO CORRECTAMENTE.")
+    except Exception as e:
+        print(f"❌ ERROR CREANDO CLIENTE SUPABASE: {e}")
+else:
+    print("⚠️ SUPABASE NO CONFIGURADO: Faltan variables de entorno.")
 
 DEFAULT_MEMORY = {
     "usuario": {
@@ -36,7 +48,6 @@ DEFAULT_MEMORY = {
 MODEL_CHAT = "openai/gpt-oss-120b"
 MODEL_FAST = "openai/gpt-oss-20b"
 
-# Variable global para evitar sobrescritura por fallos de carga inicial
 MEMORY_LOADED_SUCCESSFULLY = False
 
 # --- FUNCIONES DE MEMORIA ROBUSTA (SUPABASE) ---
@@ -45,15 +56,15 @@ def load_memory():
     global MEMORY_LOADED_SUCCESSFULLY
 
     if not supabase:
-        print("⚠️ Supabase no está configurado.")
+        print("⚠️ load_memory(): Supabase no está instanciado.")
         return DEFAULT_MEMORY.copy()
 
     try:
+        print("📡 load_memory(): Consultando la tabla 'aiko_memory' en Supabase...")
         response = supabase.table("aiko_memory").select("data").eq("id", 1).execute()
         if response.data and len(response.data) > 0:
             data = response.data[0].get("data", {})
             if isinstance(data, dict):
-                # Mantener datos existentes y rellenar claves faltantes sin limpiar
                 data.setdefault("historial", [])
                 data.setdefault("usuario", DEFAULT_MEMORY["usuario"])
                 data.setdefault("datos_clave", DEFAULT_MEMORY["datos_clave"])
@@ -62,12 +73,13 @@ def load_memory():
                 data.setdefault("estado_animo", "alegre 🌸")
                 
                 MEMORY_LOADED_SUCCESSFULLY = True
-                print("✅ Memoria cargada exitosamente desde Supabase.")
+                print("✅ load_memory(): Memoria cargada exitosamente desde Supabase.")
                 return data
+        else:
+            print("⚠️ load_memory(): La consulta a Supabase volvió vacía (no existe id=1).")
     except Exception as e:
-        print(f"❌ Error al conectar con Supabase durante la carga: {e}")
+        print(f"❌ load_memory(): Error al conectar con Supabase: {e}")
 
-    # Si hubo error de red, retoma pero sin marcar estado de éxito para evitar sobrescribir datos
     return DEFAULT_MEMORY.copy()
 
 def save_memory(memory_data):
@@ -77,20 +89,18 @@ def save_memory(memory_data):
     if not supabase or not memory_data or not isinstance(memory_data, dict):
         return
 
-    # Bloqueo de seguridad: Evita pisar la base si hubo un fallo de lectura al arrancar Render
     if not MEMORY_LOADED_SUCCESSFULLY:
-        print("⚠️ Guardado omitido para proteger la base de datos contra sobrescrituras tras un fallo de red.")
+        print("⚠️ save_memory(): Omitido para proteger la base de datos contra sobrescrituras.")
         return
 
     try:
         supabase.table("aiko_memory").update({"data": memory_data}).eq("id", 1).execute()
-        print("✅ Memoria y datos sincronizados correctamente en Supabase.")
+        print("✅ save_memory(): Memoria actualizada correctamente en Supabase.")
     except Exception as e:
-        print(f"❌ Error guardando datos en Supabase: {e}")
+        print(f"❌ save_memory(): Error guardando en Supabase: {e}")
 
 # --- BRAZO 1: HERRAMIENTA DE NOTAS Y RECORDATORIOS ---
 def handle_reminders_tool(user_message):
-    """Procesa intenciones explícitas de notas o recordatorios."""
     if not client or not user_message.strip():
         return ""
 
@@ -155,7 +165,6 @@ def handle_reminders_tool(user_message):
 
 # --- BRAZO 2: HERRAMIENTA DE BIBLIOTECA DE SNIPPETS TÉCNICOS ---
 def handle_snippets_tool(user_message):
-    """Procesa la biblioteca de código, comandos de terminal y snippets técnicos."""
     if not client or not user_message.strip():
         return ""
 
@@ -219,7 +228,6 @@ def handle_snippets_tool(user_message):
     return ""
 
 def extract_key_facts_with_ai(user_message, is_tool_action):
-    """Extrae datos personales SOLO si el mensaje no activó un brazo/herramienta."""
     if not client or not user_message.strip() or is_tool_action:
         return
 
@@ -339,6 +347,8 @@ AIKO_BASE_INSTRUCTION = (
 )
 
 def respond(message, history):
+    print(f"📥 respond(): RECIBIDO MENSAJE DEL USUARIO: \"{message}\"")
+    
     if not client:
         return "Error: La clave GROQ_API_KEY no está configurada."
 
@@ -346,18 +356,15 @@ def respond(message, history):
     if not text_content:
         return "Por favor, escribe un mensaje."
 
-    # 1. EVALUAR EJECUCIÓN DE BRAZOS / HERRAMIENTAS
     reminder_context = handle_reminders_tool(text_content)
     snippet_context = handle_snippets_tool(text_content)
     
     is_tool_action = bool(reminder_context or snippet_context)
 
-    # 2. PROCESOS EN SEGUNDO PLANO
     extract_key_facts_with_ai(text_content, is_tool_action)
     update_mood_with_ai(text_content)
     memory = load_memory()
 
-    # 3. BÚSQUEDA WEB SI APLICA
     web_context = ""
     if check_web_search_intent(text_content):
         search_results = search_web(text_content)
@@ -391,13 +398,13 @@ def respond(message, history):
         memory["historial"].append({"role": "assistant", "content": bot_response})
         save_memory(memory)
 
+        print("📤 respond(): RESPUESTA ENVIADA AL CHAT EXITOSAMENTE.")
         return bot_response
     except Exception as e:
+        print(f"❌ respond(): Error procesando con Groq: {e}")
         return f"Ocurrió un error: {str(e)}"
 
 # --- INTERFAZ GRADIO ---
-theme = gr.themes.Soft(primary_hue="indigo", secondary_hue="blue")
-
 aiko_card_html = """
 <style>
 @keyframes breathe {
@@ -425,7 +432,7 @@ aiko_card_html = """
 </div>
 """
 
-with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
+with gr.Blocks(title="Aiko Companion") as demo:
     gr.Markdown("# ✨ Aiko AI Companion")
     with gr.Row():
         with gr.Column(scale=1, min_width=280):
