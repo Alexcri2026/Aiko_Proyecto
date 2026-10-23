@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import tempfile
 import gradio as gr
 from groq import Groq
 from supabase import create_client, Client
@@ -232,27 +233,30 @@ def clean_response(text):
     return cleaned.strip()
 
 def text_to_speech_elevenlabs(text):
-    """Convierte texto a audio usando ElevenLabs y devuelve la ruta del archivo temporal"""
+    """Convierte texto a audio usando ElevenLabs con manejo robusto"""
     if not eleven_client:
+        print("⚠️ ElevenLabs client no inicializado.")
         return None
     try:
-        audio_generator = eleven_client.text_to_speech.convert(
-            voice_id=AIKO_VOICE_ID,
-            model_id="eleven_multilingual_v2",
+        audio = eleven_client.generate(
             text=text,
-            output_format="mp3_22050_32",
+            voice=AIKO_VOICE_ID,
+            model="eleven_multilingual_v2"
         )
         
-        audio_path = "/tmp/aiko_voice.mp3"
-        with open(audio_path, "wb") as f:
-            for chunk in audio_generator:
-                f.write(chunk)
-        return audio_path
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+        if isinstance(audio, bytes):
+            temp_file.write(audio)
+        else:
+            for chunk in audio:
+                temp_file.write(chunk)
+        temp_file.close()
+        return temp_file.name
     except Exception as e:
-        print(f"Error generando audio con ElevenLabs: {e}")
+        print(f"❌ Error generando audio con ElevenLabs: {e}")
         return None
 
-# --- FUNCIÓN PRINCIPAL COMPATIBLE CON CHATINTERFACE ---
+# --- FUNCIÓN PRINCIPAL CON SOPORTE DE VOZ SEGURO ---
 def respond_with_voice_toggle(message, history, voice_enabled):
     if not client:
         return "Error: La clave GROQ_API_KEY no está configurada en Render.", None
@@ -297,7 +301,7 @@ def respond_with_voice_toggle(message, history, voice_enabled):
         memory["historial"].append({"role": "assistant", "content": bot_response})
         save_memory(memory)
 
-        # 5. Generar audio si está activado
+        # 5. Generar audio solo si la casilla está marcada
         audio_output = None
         if voice_enabled:
             audio_output = text_to_speech_elevenlabs(bot_response)
@@ -360,7 +364,6 @@ aiko_card_html = """
 </div>
 """
 
-# --- INTERFAZ USANDO CHATINTERFACE (ESTABLE Y NATIVA) ---
 with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
     gr.Markdown("# ✨ Aiko AI Companion")
     
@@ -380,4 +383,3 @@ port = int(os.environ.get("PORT", 7860))
 
 if __name__ == "__main__":
     demo.launch(server_name="0.0.0.0", server_port=port)
-                    
