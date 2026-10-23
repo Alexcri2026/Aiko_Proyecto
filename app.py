@@ -252,19 +252,17 @@ def text_to_speech_elevenlabs(text):
         print(f"Error generando audio con ElevenLabs: {e}")
         return None
 
-# --- LÓGICA DE RESPUESTA PARA BLOCKS ---
-def chat_respond(message, history, voice_enabled):
+# --- FUNCIÓN PRINCIPAL COMPATIBLE CON CHATINTERFACE ---
+def respond_with_voice_toggle(message, history, voice_enabled):
     if not client:
-        yield history + [[message, "Error: La clave GROQ_API_KEY no está configurada en Render."]], None
-        return
+        return "Error: La clave GROQ_API_KEY no está configurada en Render.", None
 
     if not message or not str(message).strip():
-        yield history + [[message, "Por favor, escribe un mensaje."]], None
-        return
+        return "Por favor, escribe un mensaje.", None
 
     model_to_use = get_best_chat_model()
 
-    # 1. Notas y datos clave
+    # 1. Procesar notas y extraer datos clave
     reminder_context = handle_reminders_tool(message)
     extract_key_facts_with_ai(message, model_to_use)
     
@@ -274,7 +272,7 @@ def chat_respond(message, history, voice_enabled):
     full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + get_memory_context() + "\n" + reminder_context
     messages = [{"role": "system", "content": full_system_instruction}]
 
-    # 3. Historial
+    # 3. Cargar historial
     saved_history = memory.get("historial", [])
     for entry in saved_history[-20:]:
         if isinstance(entry, dict):
@@ -284,8 +282,6 @@ def chat_respond(message, history, voice_enabled):
                 messages.append({"role": r, "content": str(c)})
 
     messages.append({"role": "user", "content": str(message)})
-
-    updated_history = history + [[message, ""]]
 
     try:
         completion = client.chat.completions.create(
@@ -301,19 +297,15 @@ def chat_respond(message, history, voice_enabled):
         memory["historial"].append({"role": "assistant", "content": bot_response})
         save_memory(memory)
 
-        updated_history[-1][1] = bot_response
-
         # 5. Generar audio si está activado
         audio_output = None
         if voice_enabled:
             audio_output = text_to_speech_elevenlabs(bot_response)
 
-        yield updated_history, audio_output
+        return bot_response, audio_output
 
     except Exception as e:
-        err_msg = f"Ocurrió un error con el modelo {model_to_use}: {str(e)}"
-        updated_history[-1][1] = err_msg
-        yield updated_history, None
+        return f"Ocurrió un error con el modelo {model_to_use}: {str(e)}", None
 
 theme = gr.themes.Soft(
     primary_hue="indigo",
@@ -368,31 +360,24 @@ aiko_card_html = """
 </div>
 """
 
-# --- CONSTRUCCIÓN DE LA INTERFAZ CON BLOCKS ---
+# --- INTERFAZ USANDO CHATINTERFACE (ESTABLE Y NATIVA) ---
 with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
     gr.Markdown("# ✨ Aiko AI Companion")
     
     with gr.Row():
         with gr.Column(scale=1, min_width=280):
             gr.HTML(aiko_card_html)
-            # Botón interruptor para activar/desactivar la voz
             voice_toggle = gr.Checkbox(label="🔊 Activar respuesta por voz (ElevenLabs)", value=False)
-            # Componente de Audio visible para escuchar la voz de Aiko
-            audio_output = gr.Audio(label="Voz de Aiko", autoplay=True, interactive=False)
             
         with gr.Column(scale=2):
-            chatbot_ui = gr.Chatbot(height=450)
-            msg_input = gr.Textbox(show_label=False, placeholder="Escribe un mensaje a Aiko...")
-            clear_btn = gr.Button("Limpiar chat")
-
-            # Conectar la lógica de envío de mensajes
-            msg_input.submit(chat_respond, inputs=[msg_input, chatbot_ui, voice_toggle], outputs=[chatbot_ui, audio_output])
-            # Limpiar cuadro de texto al enviar
-            msg_input.submit(lambda: "", outputs=[msg_input])
-            
-            clear_btn.click(lambda: ([], None), outputs=[chatbot_ui, audio_output])
+            gr.ChatInterface(
+                fn=respond_with_voice_toggle,
+                additional_inputs=[voice_toggle],
+                additional_outputs=[gr.Audio(label="Voz de Aiko", autoplay=True, interactive=False)]
+            )
 
 port = int(os.environ.get("PORT", 7860))
 
 if __name__ == "__main__":
     demo.launch(server_name="0.0.0.0", server_port=port)
+                    
