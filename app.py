@@ -2,7 +2,6 @@ import os
 import tempfile
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel
 from groq import Groq
 from supabase import create_client, Client
 from elevenlabs import ElevenLabs
@@ -80,6 +79,7 @@ def handle_reminders_tool(user_message):
     if not user_message or not str(user_message).strip():
         return ""
     msg_lower = str(user_message).lower().strip()
+    
     keywords_ver = ["mis notas", "ver notas", "mis recordatorios", "ver recordatorios", "qué tengo anotado", "que tengo anotado"]
     if any(kw in msg_lower for kw in keywords_ver):
         memory = load_memory()
@@ -88,6 +88,27 @@ def handle_reminders_tool(user_message):
             lista_recs = "\n".join([f"- {r}" for r in recs])
             return f"\n[ACCIÓN REALIZADA]: Notas y recordatorios activos:\n{lista_recs}\n"
         return "\n[ACCIÓN REALIZADA]: No hay notas o recordatorios guardados.\n"
+
+    keywords_borrar = ["borra notas", "borra recordatorios", "limpia notas", "borrar notas", "elimina notas"]
+    if any(kw in msg_lower for kw in keywords_borrar):
+        memory = load_memory()
+        memory["recordatorios"] = []
+        save_memory(memory)
+        return "\n[ACCIÓN REALIZADA]: Has borrado todas las notas cotidianas.\n"
+
+    keywords_guardar = ["anota", "anotar", "recuérdame", "recuerdame", "apunta", "anotame", "guarda", "guardar nota", "nota que"]
+    for kw in keywords_guardar:
+        if kw in msg_lower:
+            partes = str(user_message).split(kw)
+            if len(partes) > 1:
+                texto_nota = partes[1].strip(" :,-queQUE")
+                if texto_nota:
+                    memory = load_memory()
+                    memory.setdefault("recordatorios", [])
+                    if texto_nota not in memory["recordatorios"]:
+                        memory["recordatorios"].append(texto_nota)
+                        save_memory(memory)
+                        return f"\n[ACCIÓN REALIZADA]: Guardada nota personal: \"{texto_nota}\".\n"
     return ""
 
 AIKO_BASE_INSTRUCTION = (
@@ -138,12 +159,10 @@ def text_to_speech_elevenlabs(text):
         print(f"Error en ElevenLabs: {e}")
         return None
 
-# --- ENDPOINT DE CHAT ---
 @app.post("/api/chat")
 async def chat_endpoint(message: str = Form(None), audio: UploadFile = File(None), voice_enabled: bool = Form(False)):
     user_message = message
     
-    # Procesar audio si se envió por micrófono
     if (not user_message or not user_message.strip()) and audio:
         suffix = os.path.splitext(audio.filename)[1] or ".webm"
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp:
@@ -185,13 +204,6 @@ async def chat_endpoint(message: str = Form(None), audio: UploadFile = File(None
         memory["historial"].append({"role": "assistant", "content": bot_response})
         save_memory(memory)
 
-        audio_url = None
-        if voice_enabled:
-            audio_path = text_to_speech_elevenlabs(bot_response)
-            if audio_path:
-                # Aquí puedes retornar la ruta o convertir a base64 / servir archivo estático
-                pass
-
         return {
             "user_message": user_message,
             "bot_response": bot_response
@@ -199,7 +211,6 @@ async def chat_endpoint(message: str = Form(None), audio: UploadFile = File(None
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
-# --- FRONTEND HTML/TAILWIND MODERNO ---
 @app.get("/", response_class=HTMLResponse)
 async def get_frontend():
     return """
@@ -220,7 +231,7 @@ async def get_frontend():
 </head>
 <body class="bg-gradient-to-br from-slate-50 to-pink-50 h-screen flex flex-col justify-between overflow-hidden font-sans">
 
-    <!-- Header / Navbar Minimalista -->
+    <!-- Header / Navbar -->
     <header class="bg-white/80 backdrop-blur-md border-b border-pink-100 py-3 px-6 flex items-center justify-between shadow-sm">
         <div class="flex items-center space-x-3">
             <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" class="w-10 h-10 rounded-full object-cover border-2 border-pink-400 shadow-sm" alt="Aiko">
@@ -235,7 +246,7 @@ async def get_frontend():
         </label>
     </header>
 
-    <!-- Contenedor Principal (Split View) -->
+    <!-- Contenedor Principal -->
     <main class="flex-1 max-w-5xl w-full mx-auto p-4 grid grid-cols-1 md:grid-cols-3 gap-6 overflow-hidden">
         
         <!-- Tarjeta Orgánica de Aiko -->
@@ -258,20 +269,24 @@ async def get_frontend():
                 </div>
             </div>
 
-            <!-- 🎯 CÁPSULA ESTILO GEMINI (IDÉNTICA A TU REFERENCIA) -->
+            <!-- 🎯 CÁPSULA ESTILO GEMINI (FLECHA EN VEZ DE COHETE + ICONO DE MICRÓFONO REAL) -->
             <div class="mt-4 bg-white border border-slate-200 rounded-full py-2 px-4 shadow-lg shadow-slate-200/50 flex items-center gap-3 transition-all focus-within:border-pink-400 focus-within:shadow-pink-500/10">
                 <span class="text-slate-400 text-xl cursor-pointer hover:text-slate-600">＋</span>
                 
                 <input type="text" id="userInput" placeholder="Pregúntá..." class="flex-1 border-none outline-none text-slate-700 text-sm bg-transparent">
 
-                <!-- Botón de Micrófono con Grabación real -->
-                <button id="micBtn" class="text-slate-500 hover:text-pink-500 transition-colors p-1" title="Grabar audio">
-                    🎙️
+                <!-- Botón de Micrófono corregido con SVG limpio -->
+                <button id="micBtn" class="text-slate-500 hover:text-pink-500 transition-colors p-1.5 rounded-full hover:bg-pink-50" title="Grabar audio">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
+                    </svg>
                 </button>
 
-                <!-- Botón Enviar Circular -->
-                <button id="sendBtn" class="bg-gradient-to-r from-pink-400 to-pink-500 text-white w-9 h-9 rounded-full flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-transform">
-                    🚀
+                <!-- Botón Enviar con Flecha Normal -->
+                <button id="sendBtn" class="bg-gradient-to-r from-pink-400 to-pink-500 text-white w-9 h-9 rounded-full flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-transform" title="Enviar">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7"></path>
+                    </svg>
                 </button>
             </div>
 
@@ -293,7 +308,6 @@ async def get_frontend():
             const messageText = text || userInput.value.trim();
             if (!messageText && !audioFile) return;
 
-            // Renderizar mensaje del usuario
             if (messageText) {
                 chatContainer.innerHTML += `
                     <div class="flex justify-end">
@@ -334,7 +348,7 @@ async def get_frontend():
             if (e.key === 'Enter') sendMessage();
         });
 
-        // Lógica de grabación de voz con el micrófono
+        // Lógica de grabación de voz mejorada con indicador visual de estado
         micBtn.addEventListener('click', async () => {
             if (!isRecording) {
                 try {
@@ -346,19 +360,22 @@ async def get_frontend():
                     mediaRecorder.onstop = () => {
                         const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
                         sendMessage(null, audioBlob);
+                        
+                        // Detener los canales de audio del micro del navegador
+                        stream.getTracks().forEach(track => track.stop());
                     };
 
                     mediaRecorder.start();
                     isRecording = true;
-                    micBtn.classList.add('text-red-500', 'animate-pulse');
-                    micBtn.title = "Grabando... Clic para detener";
+                    micBtn.classList.add('text-red-500', 'bg-red-50', 'animate-pulse');
+                    micBtn.title = "Grabando... Clic para enviar";
                 } catch (e) {
-                    alert("No se pudo acceder al micrófono.");
+                    alert("No se pudo acceder al micrófono. Asegúrate de dar permisos en tu navegador.");
                 }
             } else {
                 mediaRecorder.stop();
                 isRecording = false;
-                micBtn.classList.remove('text-red-500', 'animate-pulse');
+                micBtn.classList.remove('text-red-500', 'bg-red-50', 'animate-pulse');
                 micBtn.title = "Grabar audio";
             }
         });
