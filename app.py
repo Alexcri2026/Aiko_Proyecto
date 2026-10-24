@@ -80,6 +80,7 @@ def handle_reminders_tool(user_message):
         return ""
     msg_lower = str(user_message).lower().strip()
     
+    # 1. Ver notas guardadas
     keywords_ver = ["mis notas", "ver notas", "mis recordatorios", "ver recordatorios", "qué tengo anotado", "que tengo anotado"]
     if any(kw in msg_lower for kw in keywords_ver):
         memory = load_memory()
@@ -89,6 +90,7 @@ def handle_reminders_tool(user_message):
             return f"\n[ACCIÓN REALIZADA]: Notas y recordatorios activos:\n{lista_recs}\n"
         return "\n[ACCIÓN REALIZADA]: No hay notas o recordatorios guardados.\n"
 
+    # 2. Borrar notas
     keywords_borrar = ["borra notas", "borra recordatorios", "limpia notas", "borrar notas", "elimina notas"]
     if any(kw in msg_lower for kw in keywords_borrar):
         memory = load_memory()
@@ -96,6 +98,7 @@ def handle_reminders_tool(user_message):
         save_memory(memory)
         return "\n[ACCIÓN REALIZADA]: Has borrado todas las notas cotidianas.\n"
 
+    # 3. Guardar nueva nota
     keywords_guardar = ["anota", "anotar", "recuérdame", "recuerdame", "apunta", "anotame", "guarda", "guardar nota", "nota que"]
     for kw in keywords_guardar:
         if kw in msg_lower:
@@ -110,6 +113,51 @@ def handle_reminders_tool(user_message):
                         save_memory(memory)
                         return f"\n[ACCIÓN REALIZADA]: Guardada nota personal: \"{texto_nota}\".\n"
     return ""
+
+def extract_key_facts_with_ai(user_message, model_name):
+    if not client or not user_message.strip():
+        return
+    extraction_prompt = (
+        "Analiza el siguiente mensaje del usuario. Determina si menciona algún dato personal, preferencia, "
+        "hecho sobre su vida, gustos, alimentos, frutas, mascotas o detalles que una compañera virtual deba recordar.\n"
+        "Si hay algún dato relevante, extráelo en una frase corta e informativa.\n"
+        "Si NO hay ningún dato relevante, responde ÚNICAMENTE: NINGUNO.\n\n"
+        f"Mensaje: \"{user_message}\""
+    )
+    try:
+        completion = client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "system", "content": "Eres un extractor de datos clave."},
+                      {"role": "user", "content": extraction_prompt}],
+            temperature=0.2,
+            max_tokens=100,
+        )
+        fact = completion.choices[0].message.content.strip()
+        if fact and "NINGUNO" not in fact.upper():
+            memory = load_memory()
+            if fact not in memory.get("datos_clave", []):
+                memory["datos_clave"].append(fact)
+                save_memory(memory)
+    except Exception as e:
+        print(f"Error extrayendo memoria: {e}")
+
+def get_memory_context():
+    memory = load_memory()
+    context = "\n=== LO QUE RECUERDAS SOBRE EL USUARIO ===\n"
+    if memory.get("usuario"):
+        for k, v in memory.get("usuario", {}).items():
+            context += f"- {k.capitalize()}: {v}\n"
+    if memory.get("datos_clave"):
+        context += "- Hechos recordados:\n"
+        for item in memory.get("datos_clave", []):
+            context += f"  * {item}\n"
+    recs = memory.get("recordatorios", [])
+    if recs:
+        context += "- Notas activas:\n"
+        for r in recs:
+            context += f"  * {r}\n"
+    context += "=========================================="
+    return context
 
 AIKO_BASE_INSTRUCTION = (
     "Eres Aiko, una chica virtual cercana, dulce y amigable con estética anime.\n"
@@ -178,11 +226,14 @@ async def chat_endpoint(message: str = Form(None), audio: UploadFile = File(None
         return JSONResponse({"error": "Mensaje vacío"}, status_code=400)
 
     model_to_use = get_best_chat_model()
+    
+    # Activamos de nuevo todas las herramientas y la lectura de Supabase
     reminder_context = handle_reminders_tool(user_message)
     web_search_context = perform_web_search(user_message)
+    extract_key_facts_with_ai(user_message, model_to_use)
     
     memory = load_memory()
-    full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + reminder_context + "\n" + web_search_context
+    full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + get_memory_context() + "\n" + reminder_context + "\n" + web_search_context
     messages = [{"role": "system", "content": full_system_instruction}]
 
     for entry in memory.get("historial", [])[-20:]:
@@ -269,13 +320,13 @@ async def get_frontend():
                 </div>
             </div>
 
-            <!-- 🎯 CÁPSULA ESTILO GEMINI (FLECHA EN VEZ DE COHETE + ICONO DE MICRÓFONO REAL) -->
+            <!-- 🎯 CÁPSULA ESTILO GEMINI -->
             <div class="mt-4 bg-white border border-slate-200 rounded-full py-2 px-4 shadow-lg shadow-slate-200/50 flex items-center gap-3 transition-all focus-within:border-pink-400 focus-within:shadow-pink-500/10">
                 <span class="text-slate-400 text-xl cursor-pointer hover:text-slate-600">＋</span>
                 
                 <input type="text" id="userInput" placeholder="Pregúntá..." class="flex-1 border-none outline-none text-slate-700 text-sm bg-transparent">
 
-                <!-- Botón de Micrófono corregido con SVG limpio -->
+                <!-- Botón de Micrófono con icono SVG y efecto activo -->
                 <button id="micBtn" class="text-slate-500 hover:text-pink-500 transition-colors p-1.5 rounded-full hover:bg-pink-50" title="Grabar audio">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
@@ -348,7 +399,7 @@ async def get_frontend():
             if (e.key === 'Enter') sendMessage();
         });
 
-        // Lógica de grabación de voz mejorada con indicador visual de estado
+        // Lógica de grabación de voz con el micrófono
         micBtn.addEventListener('click', async () => {
             if (!isRecording) {
                 try {
@@ -360,8 +411,6 @@ async def get_frontend():
                     mediaRecorder.onstop = () => {
                         const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
                         sendMessage(null, audioBlob);
-                        
-                        // Detener los canales de audio del micro del navegador
                         stream.getTracks().forEach(track => track.stop());
                     };
 
