@@ -206,17 +206,19 @@ def text_to_speech_elevenlabs(text):
         print(f"Error en ElevenLabs: {e}")
         return None
 
-# --- FUNCIÓN PRINCIPAL COMPATIBLE CON CHATINTERFACE ---
-def respond_with_voice_toggle(message, history, voice_enabled, mic_audio):
-    if not client:
-        return "Error: La clave GROQ_API_KEY no está configurada.", None
+# --- FUNCIÓN DE PROCESAMIENTO AUTOMÁTICO ---
+def process_user_input(text_input, mic_audio, voice_enabled, history):
+    if history is None:
+        history = []
 
-    user_message = message
+    user_message = text_input
+    
+    # Si viene del micrófono, transcribir
     if not user_message and mic_audio:
         user_message = transcribe_audio_with_whisper(mic_audio)
 
     if not user_message or not str(user_message).strip():
-        return "Por favor, escribe un mensaje o háblale al micrófono.", None
+        return history, None, "", None
 
     model_to_use = get_best_chat_model()
     reminder_context = handle_reminders_tool(user_message)
@@ -249,14 +251,20 @@ def respond_with_voice_toggle(message, history, voice_enabled, mic_audio):
         memory["historial"].append({"role": "assistant", "content": bot_response})
         save_memory(memory)
 
+        # Formato de par simple compatible con versiones universales de Gradio
+        history.append((user_message, bot_response))
+
         audio_output = None
         if voice_enabled:
             audio_output = text_to_speech_elevenlabs(bot_response)
 
-        return bot_response, audio_output
+        # Retorna: historial actualizado, audio de salida, borra texto, borra mic
+        return history, audio_output, "", None
 
     except Exception as e:
-        return f"Ocurrió un error: {str(e)}", None
+        err_msg = f"Ocurrió un error: {str(e)}"
+        history.append((user_message, err_msg))
+        return history, None, "", None
 
 theme = gr.themes.Soft(primary_hue="indigo", secondary_hue="blue")
 
@@ -283,16 +291,35 @@ with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
             gr.HTML(aiko_card_html)
             voice_toggle = gr.Checkbox(label="🔊 Activar respuesta por voz (ElevenLabs)", value=False)
             mic_input = gr.Audio(sources=["microphone"], type="filepath", label="🎙️ Hablar con Aiko")
+            audio_output = gr.Audio(label="Voz de Aiko", autoplay=True, interactive=False)
             
         with gr.Column(scale=2):
-            gr.ChatInterface(
-                fn=respond_with_voice_toggle,
-                additional_inputs=[voice_toggle, mic_input],
-                additional_outputs=[gr.Audio(label="Voz de Aiko", autoplay=True, interactive=False)]
+            chatbot = gr.Chatbot(height=450)
+            msg_input = gr.Textbox(show_label=False, placeholder="Escribe un mensaje a Aiko...")
+            send_btn = gr.Button("Enviar 🚀", variant="primary")
+
+            # --- VINCULACIÓN DE EVENTOS ---
+            
+            # 1. Enviar al escribir texto (Enter o Botón)
+            msg_input.submit(
+                process_user_input, 
+                inputs=[msg_input, mic_input, voice_toggle, chatbot], 
+                outputs=[chatbot, audio_output, msg_input, mic_input]
+            )
+            send_btn.click(
+                process_user_input, 
+                inputs=[msg_input, mic_input, voice_toggle, chatbot], 
+                outputs=[chatbot, audio_output, msg_input, mic_input]
+            )
+
+            # 2. DISPARO AUTOMÁTICO AL DETENER LA GRABACIÓN
+            mic_input.stop_recording(
+                process_user_input,
+                inputs=[msg_input, mic_input, voice_toggle, chatbot],
+                outputs=[chatbot, audio_output, msg_input, mic_input]
             )
 
 port = int(os.environ.get("PORT", 7860))
 
 if __name__ == "__main__":
     demo.launch(server_name="0.0.0.0", server_port=port)
-        
