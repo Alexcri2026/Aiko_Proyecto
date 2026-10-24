@@ -98,7 +98,7 @@ def handle_reminders_tool(user_message):
         save_memory(memory)
         return "\n[ACCIÓN REALIZADA]: Has borrado todas las notas cotidianas.\n"
 
-    # 3. Guardar nueva nota
+    # 3. Guardar nueva nota o alarma
     keywords_guardar = ["anota", "anotar", "recuérdame", "recuerdame", "apunta", "anotame", "guarda", "guardar nota", "nota que"]
     for kw in keywords_guardar:
         if kw in msg_lower:
@@ -111,7 +111,7 @@ def handle_reminders_tool(user_message):
                     if texto_nota not in memory["recordatorios"]:
                         memory["recordatorios"].append(texto_nota)
                         save_memory(memory)
-                        return f"\n[ACCIÓN REALIZADA]: Guardada nota personal: \"{texto_nota}\".\n"
+                        return f"\n[ACCIÓN REALIZADA]: Guardada nota personal o recordatorio: \"{texto_nota}\".\n"
     return ""
 
 def extract_key_facts_with_ai(user_message, model_name):
@@ -186,27 +186,6 @@ def transcribe_audio_with_whisper(audio_path):
         print(f"Error en Whisper: {e}")
         return ""
 
-def text_to_speech_elevenlabs(text):
-    if not eleven_client:
-        return None
-    try:
-        audio = eleven_client.generate(
-            text=text,
-            voice=AIKO_VOICE_ID,
-            model="eleven_multilingual_v2"
-        )
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-        if isinstance(audio, bytes):
-            temp_file.write(audio)
-        else:
-            for chunk in audio:
-                temp_file.write(chunk)
-        temp_file.close()
-        return temp_file.name
-    except Exception as e:
-        print(f"Error en ElevenLabs: {e}")
-        return None
-
 @app.post("/api/chat")
 async def chat_endpoint(message: str = Form(None), audio: UploadFile = File(None), voice_enabled: bool = Form(False)):
     user_message = message
@@ -227,7 +206,6 @@ async def chat_endpoint(message: str = Form(None), audio: UploadFile = File(None
 
     model_to_use = get_best_chat_model()
     
-    # Activamos de nuevo todas las herramientas y la lectura de Supabase
     reminder_context = handle_reminders_tool(user_message)
     web_search_context = perform_web_search(user_message)
     extract_key_facts_with_ai(user_message, model_to_use)
@@ -262,6 +240,12 @@ async def chat_endpoint(message: str = Form(None), audio: UploadFile = File(None
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
+# --- NUEVO ENDPOINT PARA CONSULTAR RECORDATORIOS EN VIVO ---
+@app.get("/api/reminders")
+async def get_reminders_api():
+    memory = load_memory()
+    return {"recordatorios": memory.get("recordatorios", [])}
+
 @app.get("/", response_class=HTMLResponse)
 async def get_frontend():
     return """
@@ -281,6 +265,16 @@ async def get_frontend():
     </style>
 </head>
 <body class="bg-gradient-to-br from-slate-50 to-pink-50 h-screen flex flex-col justify-between overflow-hidden font-sans">
+
+    <!-- Notificación Flotante de Alarma / Recordatorio -->
+    <div id="alarmBanner" class="fixed top-5 right-5 z-50 transform translate-y-[-150%] transition-transform duration-500 bg-white/90 backdrop-blur-md border border-pink-300 p-4 rounded-2xl shadow-xl flex items-center space-x-3 max-w-sm">
+        <span class="text-2xl">⏰</span>
+        <div>
+            <h4 class="font-bold text-slate-800 text-sm">¡Alarma de Aiko! 🌸</h4>
+            <p id="alarmText" class="text-xs text-slate-600">Tienes un recordatorio pendiente.</p>
+        </div>
+        <button onclick="dismissAlarm()" class="text-slate-400 hover:text-slate-600 text-sm font-bold ml-auto">✕</button>
+    </div>
 
     <!-- Header / Navbar -->
     <header class="bg-white/80 backdrop-blur-md border-b border-pink-100 py-3 px-6 flex items-center justify-between shadow-sm">
@@ -326,14 +320,14 @@ async def get_frontend():
                 
                 <input type="text" id="userInput" placeholder="Pregúntá..." class="flex-1 border-none outline-none text-slate-700 text-sm bg-transparent">
 
-                <!-- Botón de Micrófono con icono SVG y efecto activo -->
+                <!-- Botón de Micrófono -->
                 <button id="micBtn" class="text-slate-500 hover:text-pink-500 transition-colors p-1.5 rounded-full hover:bg-pink-50" title="Grabar audio">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
                     </svg>
                 </button>
 
-                <!-- Botón Enviar con Flecha Normal -->
+                <!-- Botón Enviar -->
                 <button id="sendBtn" class="bg-gradient-to-r from-pink-400 to-pink-500 text-white w-9 h-9 rounded-full flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-transform" title="Enviar">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7"></path>
@@ -350,6 +344,8 @@ async def get_frontend():
         const sendBtn = document.getElementById('sendBtn');
         const micBtn = document.getElementById('micBtn');
         const voiceToggle = document.getElementById('voiceToggle');
+        const alarmBanner = document.getElementById('alarmBanner');
+        const alarmText = document.getElementById('alarmText');
 
         let mediaRecorder;
         let audioChunks = [];
@@ -399,7 +395,7 @@ async def get_frontend():
             if (e.key === 'Enter') sendMessage();
         });
 
-        // Lógica de grabación de voz con el micrófono
+        // Grabación de voz
         micBtn.addEventListener('click', async () => {
             if (!isRecording) {
                 try {
@@ -419,7 +415,7 @@ async def get_frontend():
                     micBtn.classList.add('text-red-500', 'bg-red-50', 'animate-pulse');
                     micBtn.title = "Grabando... Clic para enviar";
                 } catch (e) {
-                    alert("No se pudo acceder al micrófono. Asegúrate de dar permisos en tu navegador.");
+                    alert("No se pudo acceder al micrófono.");
                 }
             } else {
                 mediaRecorder.stop();
@@ -428,6 +424,52 @@ async def get_frontend():
                 micBtn.title = "Grabar audio";
             }
         });
+
+        // --- SISTEMA DE ALARMAS Y DETECCIÓN DE HORA ---
+        function checkAlarms() {
+            fetch('/api/reminders')
+                .then(res => res.json())
+                .then(data => {
+                    const recs = data.recordatorios || [];
+                    const now = new Date();
+                    const currentTimeStr = String(now.getHours()).padStart(2, '0') + ":" + String(now.getMinutes()).padStart(2, '0');
+
+                    recs.forEach(rec => {
+                        // Buscar patrones de hora tipo "14:30" o "5:00 pm" en el texto de la nota
+                        if (rec.includes(currentTimeStr) || rec.toLowerCase().includes(now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false}))) {
+                            showAlarm(rec);
+                        }
+                    });
+                }).catch(err => console.log(err));
+        }
+
+        function showAlarm(text) {
+            alarmText.innerText = text;
+            alarmBanner.classList.remove('translate-y-[-150%]');
+            alarmBanner.classList.add('translate-y-0');
+            
+            // Sonido suave de alerta web
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(587.33, ctx.currentTime); // Nota D5
+                gain.gain.setValueAtTime(0.1, ctx.currentTime);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + 0.3);
+            } catch(e) {}
+        }
+
+        function dismissAlarm() {
+            alarmBanner.classList.remove('translate-y-0');
+            alarmBanner.classList.add('translate-y-[-150%]');
+        }
+
+        // Revisar alarmas cada 30 segundos de forma automática
+        setInterval(checkAlarms, 30000);
     </script>
 </body>
 </html>
