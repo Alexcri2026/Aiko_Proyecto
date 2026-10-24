@@ -232,10 +232,25 @@ def clean_response(text):
     cleaned = re.sub(r'(\b[:\s]*text)+$', '', cleaned)
     return cleaned.strip()
 
+def transcribe_audio_with_whisper(audio_path):
+    """Transcribe el audio del micrófono usando Groq Whisper"""
+    if not client or not audio_path:
+        return ""
+    try:
+        with open(audio_path, "rb") as file:
+            transcription = client.audio.transcriptions.create(
+                model="whisper-large-v3-turbo",
+                file=file,
+                language="es"
+            )
+            return transcription.text
+    except Exception as e:
+        print(f"Error transcribiendo audio con Whisper: {e}")
+        return ""
+
 def text_to_speech_elevenlabs(text):
-    """Convierte texto a audio usando ElevenLabs con manejo robusto"""
+    """Convierte texto a audio usando ElevenLabs"""
     if not eleven_client:
-        print("⚠️ ElevenLabs client no inicializado.")
         return None
     try:
         audio = eleven_client.generate(
@@ -253,26 +268,31 @@ def text_to_speech_elevenlabs(text):
         temp_file.close()
         return temp_file.name
     except Exception as e:
-        print(f"❌ Error generando audio con ElevenLabs: {e}")
+        print(f"Error generando audio con ElevenLabs: {e}")
         return None
 
-# --- FUNCIÓN PRINCIPAL CON SOPORTE DE VOZ SEGURO ---
-def respond_with_voice_toggle(message, history, voice_enabled):
+# --- FUNCIÓN PRINCIPAL DE CHAT (TEXTO, AUDIO MIC Y VOZ SALIDA) ---
+def respond_with_voice_toggle(message, history, voice_enabled, mic_audio):
     if not client:
-        return "Error: La clave GROQ_API_KEY no está configurada en Render.", None
+        return "Error: La clave GROQ_API_KEY no está configurada.", None
 
-    if not message or not str(message).strip():
-        return "Por favor, escribe un mensaje.", None
+    # Determinar si el usuario escribió o habló por micrófono
+    user_message = message
+    if not user_message and mic_audio:
+        user_message = transcribe_audio_with_whisper(mic_audio)
+
+    if not user_message or not str(user_message).strip():
+        return "Por favor, escribe un mensaje o háblale por el micrófono.", None
 
     model_to_use = get_best_chat_model()
 
-    # 1. Procesar notas y extraer datos clave
-    reminder_context = handle_reminders_tool(message)
-    extract_key_facts_with_ai(message, model_to_use)
+    # 1. Procesar notas y memoria
+    reminder_context = handle_reminders_tool(user_message)
+    extract_key_facts_with_ai(user_message, model_to_use)
     
     memory = load_memory()
 
-    # 2. Construir prompt
+    # 2. Construir prompt del sistema
     full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + get_memory_context() + "\n" + reminder_context
     messages = [{"role": "system", "content": full_system_instruction}]
 
@@ -285,7 +305,7 @@ def respond_with_voice_toggle(message, history, voice_enabled):
             if c:
                 messages.append({"role": r, "content": str(c)})
 
-    messages.append({"role": "user", "content": str(message)})
+    messages.append({"role": "user", "content": str(user_message)})
 
     try:
         completion = client.chat.completions.create(
@@ -297,11 +317,11 @@ def respond_with_voice_toggle(message, history, voice_enabled):
         bot_response = clean_response(completion.choices[0].message.content)
 
         # 4. Guardar en Supabase
-        memory["historial"].append({"role": "user", "content": message})
+        memory["historial"].append({"role": "user", "content": user_message})
         memory["historial"].append({"role": "assistant", "content": bot_response})
         save_memory(memory)
 
-        # 5. Generar audio solo si la casilla está marcada
+        # 5. Generar audio de salida con ElevenLabs si está activado
         audio_output = None
         if voice_enabled:
             audio_output = text_to_speech_elevenlabs(bot_response)
@@ -371,11 +391,13 @@ with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
         with gr.Column(scale=1, min_width=280):
             gr.HTML(aiko_card_html)
             voice_toggle = gr.Checkbox(label="🔊 Activar respuesta por voz (ElevenLabs)", value=False)
+            # Componente de Micrófono para que hables con Aiko
+            mic_input = gr.Audio(sources=["microphone"], type="filepath", label="🎙️ Hablar con Aiko (Micrófono)")
             
         with gr.Column(scale=2):
             gr.ChatInterface(
                 fn=respond_with_voice_toggle,
-                additional_inputs=[voice_toggle],
+                additional_inputs=[voice_toggle, mic_input],
                 additional_outputs=[gr.Audio(label="Voz de Aiko", autoplay=True, interactive=False)]
             )
 
