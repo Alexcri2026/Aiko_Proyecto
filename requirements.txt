@@ -1,6 +1,7 @@
-gradio
+fastapi
+uvicorn
+python-multipart
 groq
 supabase
-duckduckgo-search
-requests
 elevenlabs
+duckduckgo-search
