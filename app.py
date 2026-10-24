@@ -206,7 +206,6 @@ def text_to_speech_elevenlabs(text):
         print(f"Error en ElevenLabs: {e}")
         return None
 
-# --- FUNCIÓN DE PROCESAMIENTO CON FORMATO DE DICCIONARIO COMPATIBLE ---
 def process_user_input(text_input, mic_audio, voice_enabled, history):
     if history is None:
         history = []
@@ -250,7 +249,6 @@ def process_user_input(text_input, mic_audio, voice_enabled, history):
         memory["historial"].append({"role": "assistant", "content": bot_response})
         save_memory(memory)
 
-        # Formato de diccionario exigido por la versión instalada de gr.Chatbot
         history.append({"role": "user", "content": user_message})
         history.append({"role": "assistant", "content": bot_response})
 
@@ -266,37 +264,83 @@ def process_user_input(text_input, mic_audio, voice_enabled, history):
         history.append({"role": "assistant", "content": err_msg})
         return history, None, "", None
 
-theme = gr.themes.Soft(primary_hue="indigo", secondary_hue="blue")
-
-aiko_card_html = """
-<style>
-.aiko-card { display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%); border-radius: 20px; padding: 20px; box-shadow: 0 8px 25px rgba(0,0,0,0.08); }
-.aiko-image-container { width: 220px; height: 320px; border-radius: 15px; overflow: hidden; border: 4px solid #ffffff; box-shadow: 0 8px 20px rgba(255, 105, 180, 0.25); }
-.aiko-image-container img { width: 100%; height: 100%; object-fit: cover; object-position: top center; }
-</style>
-<div class="aiko-card">
-    <div class="aiko-image-container">
-        <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" alt="Aiko 2D">
-    </div>
-    <h3 style="margin-top: 15px; color: #333; font-weight: 700; margin-bottom: 2px;">Aiko 🌸</h3>
-    <p style="font-size: 13px; color: #666; margin: 0;">✨ Tu compañera virtual</p>
-</div>
+# --- ESTILOS CSS REFINADOS Y MINIMALISTAS ---
+custom_css = """
+@keyframes breathe {
+    0%, 100% { transform: translateY(0px) scale(1); }
+    50% { transform: translateY(-3px) scale(1.008); }
+}
+@keyframes blink {
+    0%, 85%, 100% { filter: brightness(1); }
+    88% { filter: brightness(0.8) contrast(1.05); }
+    91% { filter: brightness(1); }
+}
+.aiko-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #ffffff 0%, #f7f9fc 100%);
+    border-radius: 16px;
+    padding: 15px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+    border: 1px solid #eaeaea;
+}
+.aiko-image-container {
+    width: 160px;
+    height: 230px;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 3px solid #ffffff;
+    box-shadow: 0 6px 16px rgba(255, 105, 180, 0.2);
+    animation: breathe 4s ease-in-out infinite, blink 5s ease-in-out infinite;
+}
+.aiko-image-container img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top center;
+}
+.control-panel {
+    background: #fafbfc;
+    border-radius: 14px;
+    padding: 12px;
+    border: 1px solid #eee;
+}
 """
 
-with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
-    gr.Markdown("# ✨ Aiko AI Companion")
+theme = gr.themes.Soft(
+    primary_hue="pink",
+    secondary_hue="indigo",
+)
+
+with gr.Blocks(theme=theme, css=custom_css, title="Aiko Companion") as demo:
     
-    with gr.Row():
-        with gr.Column(scale=1, min_width=280):
-            gr.HTML(aiko_card_html)
-            voice_toggle = gr.Checkbox(label="🔊 Activar respuesta por voz (ElevenLabs)", value=False)
-            mic_input = gr.Audio(sources=["microphone"], type="filepath", label="🎙️ Hablar con Aiko")
-            audio_output = gr.Audio(label="Voz de Aiko", autoplay=True, interactive=False)
+    with gr.Row(elem_classes="main-container"):
+        # --- COLUMNA IZQUIERDA: PERFIL Y CONTROLES COMPACTOS ---
+        with gr.Column(scale=1, min_width=260):
+            gr.HTML("""
+                <div class="aiko-card">
+                    <div class="aiko-image-container">
+                        <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" alt="Aiko 2D">
+                    </div>
+                    <h3 style="margin-top: 10px; color: #222; font-weight: 700; margin-bottom: 0px; font-size: 18px;">Aiko 🌸</h3>
+                    <p style="font-size: 12px; color: #666; margin: 2px 0 0 0;">✨ Tu compañera virtual</p>
+                </div>
+            """)
             
-        with gr.Column(scale=2):
-            chatbot = gr.Chatbot(height=450)
-            msg_input = gr.Textbox(show_label=False, placeholder="Escribe un mensaje a Aiko...")
-            send_btn = gr.Button("Enviar 🚀", variant="primary")
+            with gr.Group(elem_classes="control-panel"):
+                voice_toggle = gr.Checkbox(label="🔊 Activar voz (ElevenLabs)", value=False)
+                mic_input = gr.Audio(sources=["microphone"], type="filepath", label="🎙️ Háblale a Aiko")
+                audio_output = gr.Audio(label="Voz de Aiko", autoplay=True, interactive=False, visible=False)
+
+        # --- COLUMNA DERECHA: CHAT PROTAGONISTA ---
+        with gr.Column(scale=3):
+            chatbot = gr.Chatbot(height=520, placeholder="Escribe o habla con Aiko para comenzar...")
+            
+            with gr.Row():
+                msg_input = gr.Textbox(show_label=False, placeholder="Escribe un mensaje...", scale=4, container=False)
+                send_btn = gr.Button("Enviar 🚀", variant="primary", scale=1)
 
             # --- VINCULACIÓN DE EVENTOS ---
             msg_input.submit(
@@ -310,7 +354,6 @@ with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
                 outputs=[chatbot, audio_output, msg_input, mic_input]
             )
 
-            # Envío automático al terminar de grabar con el micrófono
             mic_input.stop_recording(
                 process_user_input,
                 inputs=[msg_input, mic_input, voice_toggle, chatbot],
