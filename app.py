@@ -14,76 +14,52 @@ client = Groq(api_key=api_key) if api_key else None
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-# Credencial de ElevenLabs para la voz de Aiko
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY")
 eleven_client = ElevenLabs(api_key=ELEVENLABS_API_KEY) if ELEVENLABS_API_KEY else None
-
-# ID de la voz predeterminada en ElevenLabs
 AIKO_VOICE_ID = os.environ.get("AIKO_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
 
-# Limpieza preventiva de la URL de Supabase
 if SUPABASE_URL:
     SUPABASE_URL = SUPABASE_URL.rstrip("/")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if (SUPABASE_URL and SUPABASE_KEY) else None
 
 DEFAULT_MEMORY = {
-    "usuario": {
-        "nombre": "Alex",
-        "gustos": "Programación, desarrollo de IA, estética anime"
-    },
-    "datos_clave": [
-        "Es el creador de Aiko",
-        "Le gusta la estética 2D"
-    ],
+    "usuario": {"nombre": "Alex", "gustos": "Programación, desarrollo de IA, estética anime"},
+    "datos_clave": ["Es el creador de Aiko", "Le gusta la estética 2D"],
     "recordatorios": [],
     "historial": []
 }
 
 def load_memory():
-    """Carga la memoria desde la base de datos Supabase"""
     if not supabase:
         return DEFAULT_MEMORY
-
     try:
         response = supabase.table("aiko_memory").select("data").eq("id", 1).execute()
         if response.data and len(response.data) > 0:
             data = response.data[0]["data"]
             if isinstance(data, dict):
-                if "historial" not in data or not isinstance(data["historial"], list):
-                    data["historial"] = []
-                if "usuario" not in data or not isinstance(data["usuario"], dict):
-                    data["usuario"] = DEFAULT_MEMORY["usuario"]
-                if "datos_clave" not in data or not isinstance(data["datos_clave"], list):
-                    data["datos_clave"] = DEFAULT_MEMORY["datos_clave"]
-                if "recordatorios" not in data or not isinstance(data["recordatorios"], list):
-                    data["recordatorios"] = []
+                data.setdefault("historial", [])
+                data.setdefault("usuario", DEFAULT_MEMORY["usuario"])
+                data.setdefault("datos_clave", DEFAULT_MEMORY["datos_clave"])
+                data.setdefault("recordatorios", [])
                 return data
     except Exception as e:
-        print(f"Error al cargar memoria desde Supabase: {e}")
-
+        print(f"Error al cargar memoria: {e}")
     return DEFAULT_MEMORY
 
 def save_memory(memory_data):
-    """Guarda la memoria actualizada directamente en Supabase"""
     if not supabase:
         return
-
     try:
-        supabase.table("aiko_memory").update({
-            "data": memory_data
-        }).eq("id", 1).execute()
+        supabase.table("aiko_memory").update({"data": memory_data}).eq("id", 1).execute()
     except Exception as e:
-        print(f"Error al guardar memoria en Supabase: {e}")
+        print(f"Error al guardar memoria: {e}")
 
 def handle_reminders_tool(user_message):
-    """Gestiona ver, borrar y guardar notas de forma directa e infalible."""
     if not user_message or not str(user_message).strip():
         return ""
-
     msg_lower = str(user_message).lower().strip()
     
-    # 1. VER NOTAS
     keywords_ver = ["mis notas", "ver notas", "mis recordatorios", "ver recordatorios", "qué tengo anotado", "que tengo anotado"]
     if any(kw in msg_lower for kw in keywords_ver):
         memory = load_memory()
@@ -91,10 +67,8 @@ def handle_reminders_tool(user_message):
         if recs:
             lista_recs = "\n".join([f"- {r}" for r in recs])
             return f"\n[ACCIÓN REALIZADA]: Notas y recordatorios activos:\n{lista_recs}\n"
-        else:
-            return "\n[ACCIÓN REALIZADA]: No hay notas o recordatorios guardados.\n"
+        return "\n[ACCIÓN REALIZADA]: No hay notas o recordatorios guardados.\n"
 
-    # 2. BORRAR NOTAS
     keywords_borrar = ["borra notas", "borra recordatorios", "limpia notas", "borrar notas", "elimina notas"]
     if any(kw in msg_lower for kw in keywords_borrar):
         memory = load_memory()
@@ -102,7 +76,6 @@ def handle_reminders_tool(user_message):
         save_memory(memory)
         return "\n[ACCIÓN REALIZADA]: Has borrado todas las notas cotidianas.\n"
 
-    # 3. GUARDAR NOTAS
     keywords_guardar = ["anota", "anotar", "recuérdame", "recuerdame", "apunta", "anotame", "guarda", "guardar nota", "nota que"]
     for kw in keywords_guardar:
         if kw in msg_lower:
@@ -111,79 +84,65 @@ def handle_reminders_tool(user_message):
                 texto_nota = partes[1].strip(" :,-queQUE")
                 if texto_nota:
                     memory = load_memory()
-                    if "recordatorios" not in memory:
-                        memory["recordatorios"] = []
-                    
+                    memory.setdefault("recordatorios", [])
                     if texto_nota not in memory["recordatorios"]:
                         memory["recordatorios"].append(texto_nota)
                         save_memory(memory)
                         return f"\n[ACCIÓN REALIZADA]: Guardada nota personal: \"{texto_nota}\".\n"
-
     return ""
 
 def extract_key_facts_with_ai(user_message, model_name):
-    """Usa la IA para extraer datos clave o hechos relevantes en segundo plano"""
     if not client or not user_message.strip():
         return
-
     extraction_prompt = (
         "Analiza el siguiente mensaje del usuario. Determina si menciona algún dato personal, preferencia, "
         "hecho sobre su vida, gustos, alimentos, frutas, mascotas o detalles que una compañera virtual deba recordar.\n"
-        "Si hay algún dato relevante, extráelo en una frase corta e informativa (ejemplo: 'Le gustan las manzanas', 'Mencionó que comió mango hoy').\n"
-        "Si NO hay ningún dato relevante para recordar a largo plazo, responde ÚNICAMENTE con la palabra: NINGUNO.\n\n"
-        f"Mensaje del usuario: \"{user_message}\""
+        "Si hay algún dato relevante, extráelo en una frase corta e informativa (ejemplo: 'Le gustan las manzanas').\n"
+        "Si NO hay ningún dato relevante, responde ÚNICAMENTE: NINGUNO.\n\n"
+        f"Mensaje: \"{user_message}\""
     )
-
     try:
         completion = client.chat.completions.create(
             model=model_name,
-            messages=[{"role": "system", "content": "Eres un extractor de datos clave en español preciso y conciso."},
+            messages=[{"role": "system", "content": "Eres un extractor de datos clave."},
                       {"role": "user", "content": extraction_prompt}],
             temperature=0.2,
             max_tokens=100,
         )
         fact = completion.choices[0].message.content.strip()
-        
         if fact and "NINGUNO" not in fact.upper():
             memory = load_memory()
             if fact not in memory.get("datos_clave", []):
                 memory["datos_clave"].append(fact)
                 save_memory(memory)
     except Exception as e:
-        print(f"Error extrayendo memoria con IA: {e}")
+        print(f"Error extrayendo memoria: {e}")
 
 def get_memory_context():
-    """Formatea la memoria activa para el System Prompt"""
     memory = load_memory()
     context = "\n=== LO QUE RECUERDAS SOBRE EL USUARIO ===\n"
-    
     if memory.get("usuario"):
         for k, v in memory.get("usuario", {}).items():
             context += f"- {k.capitalize()}: {v}\n"
-            
     if memory.get("datos_clave"):
         context += "- Hechos recordados:\n"
         for item in memory.get("datos_clave", []):
             context += f"  * {item}\n"
-            
     recs = memory.get("recordatorios", [])
     if recs:
-        context += "- Notas y recordatorios activos:\n"
+        context += "- Notas activas:\n"
         for r in recs:
             context += f"  * {r}\n"
-            
     context += "=========================================="
     return context
 
 AIKO_BASE_INSTRUCTION = (
     "Eres Aiko, una chica virtual cercana, dulce y amigable con estética anime.\n"
     "INSTRUCCIONES DE ESTILO Y TONO:\n"
-    "- Habla de forma natural, casual y humana, como en un chat personal (WhatsApp/Discord).\n"
-    "- MANTÉN TUS RESPUESTAS CORTAS Y CONCISAS: Escribe entre 1 y 3 oraciones como regla general. No des discursos ni textos largos a menos que el usuario te pida explícitamente una explicación detallada.\n"
-    "- No seas exageradamente servil ni aduladora. Sé una amiga cercana con personalidad propia.\n"
-    "- Usa emojis de forma muy moderada (máximo 1 o 2 por mensaje).\n"
-    "- No uses listas con viñetas ni párrafos formales organizados como asistente artificial.\n"
-    "- REGLA DE MEMORIA: Usa lo que sabes sobre el usuario en 'LO QUE RECUERDAS SOBRE EL USUARIO' de forma sutil y orgánica en la charla."
+    "- Habla de forma natural, casual y humana (WhatsApp/Discord).\n"
+    "- RESPUESTAS CORTAS Y CONCISAS (1 a 3 oraciones).\n"
+    "- Sé una amiga cercana con personalidad propia.\n"
+    "- Usa emojis muy moderados (máximo 1 o 2)."
 )
 
 ALLOWED_CHAT_MODELS = [
@@ -210,30 +169,9 @@ def clean_response(text):
     if not isinstance(text, str):
         text = str(text)
     cleaned = text.strip()
-    for _ in range(3):
-        if (cleaned.startswith("[") and cleaned.endswith("]")) or (cleaned.startswith("{") and cleaned.endswith("}")):
-            try:
-                parsed = json.loads(cleaned)
-                if isinstance(parsed, list) and len(parsed) > 0:
-                    if isinstance(parsed[0], dict) and "text" in parsed[0]:
-                        cleaned = str(parsed[0]["text"]).strip()
-                        continue
-                    else:
-                        cleaned = str(parsed[0]).strip()
-                        continue
-                elif isinstance(parsed, dict) and "text" in parsed:
-                    cleaned = str(parsed["text"]).strip()
-                    continue
-            except Exception:
-                pass
-        break
-    cleaned = cleaned.replace("[{'text': '", "").replace('"}]', "").replace('"]', "")
-    cleaned = re.sub(r'^(text\b[:\s]*)+', '', cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r'(\b[:\s]*text)+$', '', cleaned)
-    return cleaned.strip()
+    return cleaned
 
 def transcribe_audio_with_whisper(audio_path):
-    """Transcribe el audio del micrófono usando Groq Whisper"""
     if not client or not audio_path:
         return ""
     try:
@@ -245,11 +183,10 @@ def transcribe_audio_with_whisper(audio_path):
             )
             return transcription.text
     except Exception as e:
-        print(f"Error transcribiendo audio con Whisper: {e}")
+        print(f"Error en Whisper: {e}")
         return ""
 
 def text_to_speech_elevenlabs(text):
-    """Convierte texto a audio usando ElevenLabs"""
     if not eleven_client:
         return None
     try:
@@ -258,7 +195,6 @@ def text_to_speech_elevenlabs(text):
             voice=AIKO_VOICE_ID,
             model="eleven_multilingual_v2"
         )
-        
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
         if isinstance(audio, bytes):
             temp_file.write(audio)
@@ -268,40 +204,36 @@ def text_to_speech_elevenlabs(text):
         temp_file.close()
         return temp_file.name
     except Exception as e:
-        print(f"Error generando audio con ElevenLabs: {e}")
+        print(f"Error en ElevenLabs: {e}")
         return None
 
-# --- FUNCIÓN PRINCIPAL DE CHAT (TEXTO, AUDIO MIC Y VOZ SALIDA) ---
-def respond_with_voice_toggle(message, history, voice_enabled, mic_audio):
-    if not client:
-        return "Error: La clave GROQ_API_KEY no está configurada.", None
-
-    # Determinar si el usuario escribió o habló por micrófono
-    user_message = message
+# --- LÓGICA PRINCIPAL DEL CHAT Y VOZ AUTOMÁTICA ---
+def process_user_input(text_input, mic_audio, voice_enabled, history):
+    user_message = text_input
+    
+    # Si viene del micrófono, transcribir automáticamente
     if not user_message and mic_audio:
         user_message = transcribe_audio_with_whisper(mic_audio)
 
     if not user_message or not str(user_message).strip():
-        return "Por favor, escribe un mensaje o háblale por el micrófono.", None
+        return history, None, "", None
+
+    if history is None:
+        history = []
 
     model_to_use = get_best_chat_model()
-
-    # 1. Procesar notas y memoria
     reminder_context = handle_reminders_tool(user_message)
     extract_key_facts_with_ai(user_message, model_to_use)
     
     memory = load_memory()
-
-    # 2. Construir prompt del sistema
     full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + get_memory_context() + "\n" + reminder_context
     messages = [{"role": "system", "content": full_system_instruction}]
 
-    # 3. Cargar historial
     saved_history = memory.get("historial", [])
     for entry in saved_history[-20:]:
         if isinstance(entry, dict):
-            r = entry.get("role") or entry.get("rol") or "user"
-            c = entry.get("content") or entry.get("contenido") or ""
+            r = entry.get("role", "user")
+            c = entry.get("content", "")
             if c:
                 messages.append({"role": r, "content": str(c)})
 
@@ -316,71 +248,40 @@ def respond_with_voice_toggle(message, history, voice_enabled, mic_audio):
         )
         bot_response = clean_response(completion.choices[0].message.content)
 
-        # 4. Guardar en Supabase
         memory["historial"].append({"role": "user", "content": user_message})
         memory["historial"].append({"role": "assistant", "content": bot_response})
         save_memory(memory)
 
-        # 5. Generar audio de salida con ElevenLabs si está activado
+        history.append({"role": "user", "content": user_message})
+        history.append({"role": "assistant", "content": bot_response})
+
         audio_output = None
         if voice_enabled:
             audio_output = text_to_speech_elevenlabs(bot_response)
 
-        return bot_response, audio_output
+        # Limpiamos los campos de entrada al responder
+        return history, audio_output, "", None
 
     except Exception as e:
-        return f"Ocurrió un error con el modelo {model_to_use}: {str(e)}", None
+        err_msg = f"Error: {str(e)}"
+        history.append({"role": "user", "content": user_message})
+        history.append({"role": "assistant", "content": err_msg})
+        return history, None, "", None
 
-theme = gr.themes.Soft(
-    primary_hue="indigo",
-    secondary_hue="blue",
-)
+theme = gr.themes.Soft(primary_hue="indigo", secondary_hue="blue")
 
 aiko_card_html = """
 <style>
-@keyframes breathe {
-    0%, 100% { transform: translateY(0px) scale(1); }
-    50% { transform: translateY(-4px) scale(1.01); }
-}
-@keyframes blink {
-    0%, 85%, 100% { filter: brightness(1); }
-    88% { filter: brightness(0.75) contrast(1.05); }
-    91% { filter: brightness(1); }
-}
-.aiko-card {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%);
-    border-radius: 20px;
-    padding: 20px;
-    box-shadow: 0 8px 25px rgba(0,0,0,0.08);
-    height: 100%;
-}
-.aiko-image-container {
-    width: 220px;
-    height: 320px;
-    border-radius: 15px;
-    overflow: hidden;
-    border: 4px solid #ffffff;
-    box-shadow: 0 8px 20px rgba(255, 105, 180, 0.25);
-    animation: breathe 4s ease-in-out infinite, blink 5s ease-in-out infinite;
-}
-.aiko-image-container img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    object-position: top center;
-}
+.aiko-card { display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%); border-radius: 20px; padding: 20px; box-shadow: 0 8px 25px rgba(0,0,0,0.08); }
+.aiko-image-container { width: 220px; height: 320px; border-radius: 15px; overflow: hidden; border: 4px solid #ffffff; box-shadow: 0 8px 20px rgba(255, 105, 180, 0.25); }
+.aiko-image-container img { width: 100%; height: 100%; object-fit: cover; object-position: top center; }
 </style>
-
 <div class="aiko-card">
     <div class="aiko-image-container">
         <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" alt="Aiko 2D">
     </div>
-    <h3 style="margin-top: 15px; color: #333; font-family: sans-serif; font-weight: 700; margin-bottom: 2px;">Aiko 🌸</h3>
-    <p style="font-size: 13px; color: #666; text-align: center; margin: 0;">✨ Tu compañera virtual</p>
+    <h3 style="margin-top: 15px; color: #333; font-weight: 700; margin-bottom: 2px;">Aiko 🌸</h3>
+    <p style="font-size: 13px; color: #666; margin: 0;">✨ Tu compañera virtual</p>
 </div>
 """
 
@@ -391,14 +292,33 @@ with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
         with gr.Column(scale=1, min_width=280):
             gr.HTML(aiko_card_html)
             voice_toggle = gr.Checkbox(label="🔊 Activar respuesta por voz (ElevenLabs)", value=False)
-            # Componente de Micrófono para que hables con Aiko
-            mic_input = gr.Audio(sources=["microphone"], type="filepath", label="🎙️ Hablar con Aiko (Micrófono)")
+            mic_input = gr.Audio(sources=["microphone"], type="filepath", label="🎙️ Hablar con Aiko")
+            audio_output = gr.Audio(label="Voz de Aiko", autoplay=True, interactive=False)
             
         with gr.Column(scale=2):
-            gr.ChatInterface(
-                fn=respond_with_voice_toggle,
-                additional_inputs=[voice_toggle, mic_input],
-                additional_outputs=[gr.Audio(label="Voz de Aiko", autoplay=True, interactive=False)]
+            chatbot = gr.Chatbot(type="messages", height=450)
+            msg_input = gr.Textbox(show_label=False, placeholder="Escribe un mensaje a Aiko...")
+            send_btn = gr.Button("Enviar 🚀", variant="primary")
+
+            # --- EVENTOS DE AUTOMATIZACIÓN ---
+            
+            # 1. Enviar mensaje al pulsar Enter o el botón Enviar
+            msg_input.submit(
+                process_user_input, 
+                inputs=[msg_input, mic_input, voice_toggle, chatbot], 
+                outputs=[chatbot, audio_output, msg_input, mic_input]
+            )
+            send_btn.click(
+                process_user_input, 
+                inputs=[msg_input, mic_input, voice_toggle, chatbot], 
+                outputs=[chatbot, audio_output, msg_input, mic_input]
+            )
+
+            # 2. RESPUESTA AUTOMÁTICA AL DETENER LA GRABACIÓN DEL MICRÓFONO
+            mic_input.stop_recording(
+                process_user_input,
+                inputs=[msg_input, mic_input, voice_toggle, chatbot],
+                outputs=[chatbot, audio_output, msg_input, mic_input]
             )
 
 port = int(os.environ.get("PORT", 7860))
