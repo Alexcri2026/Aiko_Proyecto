@@ -97,7 +97,7 @@ def extract_key_facts_with_ai(user_message, model_name):
     extraction_prompt = (
         "Analiza el siguiente mensaje del usuario. Determina si menciona algún dato personal, preferencia, "
         "hecho sobre su vida, gustos, alimentos, frutas, mascotas o detalles que una compañera virtual deba recordar.\n"
-        "Si hay algún dato relevante, extráelo en una frase corta e informativa (ejemplo: 'Le gustan las manzanas').\n"
+        "Si hay algún dato relevante, extráelo en una frase corta e informativa.\n"
         "Si NO hay ningún dato relevante, responde ÚNICAMENTE: NINGUNO.\n\n"
         f"Mensaje: \"{user_message}\""
     )
@@ -168,8 +168,7 @@ def get_best_chat_model():
 def clean_response(text):
     if not isinstance(text, str):
         text = str(text)
-    cleaned = text.strip()
-    return cleaned
+    return text.strip()
 
 def transcribe_audio_with_whisper(audio_path):
     if not client or not audio_path:
@@ -207,19 +206,17 @@ def text_to_speech_elevenlabs(text):
         print(f"Error en ElevenLabs: {e}")
         return None
 
-# --- LÓGICA PRINCIPAL DEL CHAT Y VOZ AUTOMÁTICA ---
-def process_user_input(text_input, mic_audio, voice_enabled, history):
-    user_message = text_input
-    
-    # Si viene del micrófono, transcribir automáticamente
+# --- FUNCIÓN PRINCIPAL COMPATIBLE CON CHATINTERFACE ---
+def respond_with_voice_toggle(message, history, voice_enabled, mic_audio):
+    if not client:
+        return "Error: La clave GROQ_API_KEY no está configurada.", None
+
+    user_message = message
     if not user_message and mic_audio:
         user_message = transcribe_audio_with_whisper(mic_audio)
 
     if not user_message or not str(user_message).strip():
-        return history, None, "", None
-
-    if history is None:
-        history = []
+        return "Por favor, escribe un mensaje o háblale al micrófono.", None
 
     model_to_use = get_best_chat_model()
     reminder_context = handle_reminders_tool(user_message)
@@ -252,21 +249,14 @@ def process_user_input(text_input, mic_audio, voice_enabled, history):
         memory["historial"].append({"role": "assistant", "content": bot_response})
         save_memory(memory)
 
-        history.append({"role": "user", "content": user_message})
-        history.append({"role": "assistant", "content": bot_response})
-
         audio_output = None
         if voice_enabled:
             audio_output = text_to_speech_elevenlabs(bot_response)
 
-        # Limpiamos los campos de entrada al responder
-        return history, audio_output, "", None
+        return bot_response, audio_output
 
     except Exception as e:
-        err_msg = f"Error: {str(e)}"
-        history.append({"role": "user", "content": user_message})
-        history.append({"role": "assistant", "content": err_msg})
-        return history, None, "", None
+        return f"Ocurrió un error: {str(e)}", None
 
 theme = gr.themes.Soft(primary_hue="indigo", secondary_hue="blue")
 
@@ -293,35 +283,16 @@ with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
             gr.HTML(aiko_card_html)
             voice_toggle = gr.Checkbox(label="🔊 Activar respuesta por voz (ElevenLabs)", value=False)
             mic_input = gr.Audio(sources=["microphone"], type="filepath", label="🎙️ Hablar con Aiko")
-            audio_output = gr.Audio(label="Voz de Aiko", autoplay=True, interactive=False)
             
         with gr.Column(scale=2):
-            chatbot = gr.Chatbot(type="messages", height=450)
-            msg_input = gr.Textbox(show_label=False, placeholder="Escribe un mensaje a Aiko...")
-            send_btn = gr.Button("Enviar 🚀", variant="primary")
-
-            # --- EVENTOS DE AUTOMATIZACIÓN ---
-            
-            # 1. Enviar mensaje al pulsar Enter o el botón Enviar
-            msg_input.submit(
-                process_user_input, 
-                inputs=[msg_input, mic_input, voice_toggle, chatbot], 
-                outputs=[chatbot, audio_output, msg_input, mic_input]
-            )
-            send_btn.click(
-                process_user_input, 
-                inputs=[msg_input, mic_input, voice_toggle, chatbot], 
-                outputs=[chatbot, audio_output, msg_input, mic_input]
-            )
-
-            # 2. RESPUESTA AUTOMÁTICA AL DETENER LA GRABACIÓN DEL MICRÓFONO
-            mic_input.stop_recording(
-                process_user_input,
-                inputs=[msg_input, mic_input, voice_toggle, chatbot],
-                outputs=[chatbot, audio_output, msg_input, mic_input]
+            gr.ChatInterface(
+                fn=respond_with_voice_toggle,
+                additional_inputs=[voice_toggle, mic_input],
+                additional_outputs=[gr.Audio(label="Voz de Aiko", autoplay=True, interactive=False)]
             )
 
 port = int(os.environ.get("PORT", 7860))
 
 if __name__ == "__main__":
     demo.launch(server_name="0.0.0.0", server_port=port)
+        
