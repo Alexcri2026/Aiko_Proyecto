@@ -206,14 +206,13 @@ def text_to_speech_elevenlabs(text):
         print(f"Error en ElevenLabs: {e}")
         return None
 
-# --- FUNCIÓN DE PROCESAMIENTO AUTOMÁTICO ---
+# --- FUNCIÓN DE PROCESAMIENTO CON FORMATO DE DICCIONARIO COMPATIBLE ---
 def process_user_input(text_input, mic_audio, voice_enabled, history):
     if history is None:
         history = []
 
     user_message = text_input
     
-    # Si viene del micrófono, transcribir
     if not user_message and mic_audio:
         user_message = transcribe_audio_with_whisper(mic_audio)
 
@@ -251,19 +250,20 @@ def process_user_input(text_input, mic_audio, voice_enabled, history):
         memory["historial"].append({"role": "assistant", "content": bot_response})
         save_memory(memory)
 
-        # Formato de par simple compatible con versiones universales de Gradio
-        history.append((user_message, bot_response))
+        # Formato de diccionario exigido por la versión instalada de gr.Chatbot
+        history.append({"role": "user", "content": user_message})
+        history.append({"role": "assistant", "content": bot_response})
 
         audio_output = None
         if voice_enabled:
             audio_output = text_to_speech_elevenlabs(bot_response)
 
-        # Retorna: historial actualizado, audio de salida, borra texto, borra mic
         return history, audio_output, "", None
 
     except Exception as e:
         err_msg = f"Ocurrió un error: {str(e)}"
-        history.append((user_message, err_msg))
+        history.append({"role": "user", "content": user_message})
+        history.append({"role": "assistant", "content": err_msg})
         return history, None, "", None
 
 theme = gr.themes.Soft(primary_hue="indigo", secondary_hue="blue")
@@ -299,8 +299,6 @@ with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
             send_btn = gr.Button("Enviar 🚀", variant="primary")
 
             # --- VINCULACIÓN DE EVENTOS ---
-            
-            # 1. Enviar al escribir texto (Enter o Botón)
             msg_input.submit(
                 process_user_input, 
                 inputs=[msg_input, mic_input, voice_toggle, chatbot], 
@@ -312,7 +310,7 @@ with gr.Blocks(theme=theme, title="Aiko Companion") as demo:
                 outputs=[chatbot, audio_output, msg_input, mic_input]
             )
 
-            # 2. DISPARO AUTOMÁTICO AL DETENER LA GRABACIÓN
+            # Envío automático al terminar de grabar con el micrófono
             mic_input.stop_recording(
                 process_user_input,
                 inputs=[msg_input, mic_input, voice_toggle, chatbot],
