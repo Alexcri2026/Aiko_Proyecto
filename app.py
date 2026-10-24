@@ -288,7 +288,7 @@ def process_user_input(text_input, mic_audio, voice_enabled, history):
         history.append({"role": "assistant", "content": err_msg})
         return history, None, "", None
 
-# --- CSS ESTILO GEMINI CAPSULE CON IDENTIDAD AIKO ---
+# --- CSS PERSONALIZADO PARA LA CÁPSULA ESTILO GEMINI ---
 custom_css = """
 @keyframes floatAnim {
     0%, 100% { transform: translateY(0px); }
@@ -332,7 +332,7 @@ custom_css = """
     margin-top: 10px;
 }
 
-/* Burbujas del chat dinámicas */
+/* Burbujas del chat dinámicas con avatar */
 .aiko-chat-container .message {
     border-radius: 18px !important;
     padding: 12px 16px !important;
@@ -351,21 +351,9 @@ custom_css = """
     box-shadow: 0 3px 10px rgba(255, 117, 140, 0.25) !important;
 }
 
-/* 🎯 CÁPSULA FLOTANTE TIPO GEMINI (EXACTA A LA REFERENCIA) */
-.gemini-input-capsule {
-    background: #ffffff !important;
-    border: 1px solid #e2e8f0 !important;
-    border-radius: 40px !important;
-    padding: 6px 14px !important;
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.06) !important;
-    display: flex !important;
-    align-items: center !important;
-    transition: all 0.3s ease !important;
-}
-
-.gemini-input-capsule:focus-within {
-    border-color: #ff7eb3 !important;
-    box-shadow: 0 10px 30px rgba(255, 126, 179, 0.2) !important;
+/* Ocultar elementos auxiliares para que la interfaz quede limpia */
+.element-hidden {
+    display: none !important;
 }
 """
 
@@ -395,7 +383,7 @@ with gr.Blocks(theme=theme, css=custom_css, title="Aiko AI Companion") as demo:
             voice_toggle = gr.Checkbox(label="🔊 Activar respuesta por voz (ElevenLabs)", value=False)
             audio_output = gr.Audio(label="Voz de Aiko", autoplay=True, interactive=False, visible=False)
 
-        # --- COLUMNA DERECHA: CHAT Y CÁPSULA IDÉNTICA A GEMINI ---
+        # --- COLUMNA DERECHA: CHAT Y BARRA ESTILO GEMINI ---
         with gr.Column(scale=2):
             chatbot = gr.Chatbot(
                 height=480, 
@@ -404,13 +392,112 @@ with gr.Blocks(theme=theme, css=custom_css, title="Aiko AI Companion") as demo:
                 elem_classes="aiko-chat-container"
             )
             
-            # Cápsula inferior con diseño exacto al de la imagen de referencia (Gemini style)
-            with gr.Row(elem_classes="gemini-input-capsule"):
-                msg_input = gr.Textbox(show_label=False, placeholder="Pregúntá...", scale=6, container=False)
-                mic_input = gr.Audio(sources=["microphone"], type="filepath", label=None, show_label=False, scale=1, container=False)
-                send_btn = gr.Button("🚀", variant="primary", scale=1)
+            # Componentes reales de Gradio ocultos para enlazar la lógica
+            with gr.Row(elem_classes="element-hidden"):
+                msg_input = gr.Textbox(show_label=False)
+                mic_input = gr.Audio(sources=["microphone"], type="filepath")
+                send_btn = gr.Button("Enviar")
 
-            # --- VINCULACIÓN DE EVENTOS ---
+            # --- CÁPSULA FLOTANTE INTERACTIVA ESTILO GEMINI (HTML + JS) ---
+            gr.HTML("""
+                <div id="gemini-pill-container" style="
+                    background: #ffffff;
+                    border: 1px solid #e2e8f0;
+                    border-radius: 40px;
+                    padding: 8px 16px;
+                    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.06);
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    margin-top: 10px;
+                    transition: all 0.3s ease;
+                ">
+                    <span style="font-size: 20px; color: #718096; cursor: pointer; padding: 0 4px;" title="Añadir">＋</span>
+                    
+                    <input id="custom-text-input" type="text" placeholder="Pregúntá..." style="
+                        border: none;
+                        outline: none;
+                        flex-grow: 1;
+                        font-size: 15px;
+                        background: transparent;
+                        color: #2d3748;
+                    ">
+
+                    <button id="custom-mic-btn" style="
+                        background: transparent;
+                        border: none;
+                        cursor: pointer;
+                        font-size: 18px;
+                        padding: 6px;
+                        border-radius: 50%;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        color: #4a5568;
+                    " title="Hablar con voz">🎙️</button>
+
+                    <button id="custom-send-btn" style="
+                        background: linear-gradient(135deg, #ff7eb3 0%, #ff758c 100%);
+                        border: none;
+                        cursor: pointer;
+                        width: 38px;
+                        height: 38px;
+                        border-radius: 50%;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        color: white;
+                        box-shadow: 0 4px 12px rgba(255, 117, 140, 0.3);
+                    " title="Enviar">🚀</button>
+                </div>
+
+                <script>
+                setTimeout(() => {
+                    const customInput = document.getElementById('custom-text-input');
+                    const customSend = document.getElementById('custom-send-btn');
+                    const customMic = document.getElementById('custom-mic-btn');
+
+                    // Buscar los inputs reales de Gradio en el DOM
+                    const gradioTextbox = document.querySelector('#' + CSS.escape('input-box') + ' textarea, .gradio-container textarea, input[type="text"]');
+                    const gradioSendBtn = document.querySelector('button.primary');
+
+                    if (customInput && gradioTextbox) {
+                        customInput.addEventListener('keydown', function(e) {
+                            if (e.key === 'Enter') {
+                                gradioTextbox.value = customInput.value;
+                                gradioTextbox.dispatchEvent(new Event('input', { bubbles: true }));
+                                gradioTextbox.dispatchEvent(new Event('change', { bubbles: true }));
+                                customInput.value = '';
+                                
+                                setTimeout(() => {
+                                    const submitBtn = document.querySelector('button.primary');
+                                    if (submitBtn) submitBtn.click();
+                                }, 100);
+                            }
+                        });
+                    }
+
+                    if (customSend) {
+                        customSend.addEventListener('click', function() {
+                            const activeTextbox = document.querySelector('.gradio-container textarea, input[type="text"]');
+                            if (activeTextbox && customInput.value.trim() !== '') {
+                                activeTextbox.value = customInput.value;
+                                activeTextbox.dispatchEvent(new Event('input', { bubbles: true }));
+                                activeTextbox.dispatchEvent(new Event('change', { bubbles: true }));
+                                customInput.value = '';
+
+                                setTimeout(() => {
+                                    const submitBtn = document.querySelector('button.primary');
+                                    if (submitBtn) submitBtn.click();
+                                }, 100);
+                            }
+                        });
+                    }
+                }, 1000);
+                </script>
+            """)
+
+            # --- VINCULACIÓN DE EVENTOS BACKEND ---
             msg_input.submit(
                 process_user_input, 
                 inputs=[msg_input, mic_input, voice_toggle, chatbot], 
