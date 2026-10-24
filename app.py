@@ -56,7 +56,7 @@ def save_memory(memory_data):
     except Exception as e:
         print(f"Error al guardar memoria: {e}")
 
-# --- 1. HERRAMIENTA DE BÚSQUEDA WEB (DUCKDUCKGO) ---
+# --- HERRAMIENTA DE BÚSQUEDA WEB (DUCKDUCKGO) ---
 def perform_web_search(user_message):
     if not user_message or not str(user_message).strip():
         return ""
@@ -288,32 +288,133 @@ def process_user_input(text_input, mic_audio, voice_enabled, history):
         history.append({"role": "assistant", "content": err_msg})
         return history, None, "", None
 
-# --- ESTILOS CSS REFINADOS ---
+# --- CSS AVANZADO: GLASSMORPHISM, ANIMACIONES Y CÁPSULA FLOTANTE ---
 custom_css = """
-.aiko-card {
+/* Animaciones principales */
+@keyframes floatAnim {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-8px); }
+}
+
+@keyframes slideUpFade {
+    from {
+        opacity: 0;
+        transform: translateY(14px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes pulseGlow {
+    0%, 100% { box-shadow: 0 0 15px rgba(255, 126, 179, 0.2); }
+    50% { box-shadow: 0 0 25px rgba(255, 126, 179, 0.45); }
+}
+
+/* Contenedor general */
+.gradio-container {
+    background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%) !important;
+}
+
+/* 1. Tarjeta Orgánica de Aiko (Glassmorphism sin recuadro rígido) */
+.aiko-organic-card {
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, #ffffff 0%, #f7f9fc 100%);
-    border-radius: 20px;
-    padding: 20px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.05);
-    border: 1px solid #eaeaea;
+    padding: 24px;
+    background: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    box-shadow: 0 12px 32px rgba(31, 38, 135, 0.06);
+    margin-bottom: 12px;
 }
-.aiko-image-container {
-    width: 200px;
-    height: 290px;
-    border-radius: 15px;
-    overflow: hidden;
-    border: 4px solid #ffffff;
-    box-shadow: 0 6px 20px rgba(255, 105, 180, 0.2);
-}
-.aiko-image-container img {
-    width: 100%;
-    height: 100%;
+
+.aiko-hero-image {
+    width: 210px;
+    height: 300px;
+    border-radius: 22px;
     object-fit: cover;
     object-position: top center;
+    box-shadow: 0 10px 30px rgba(255, 105, 180, 0.3);
+    animation: floatAnim 4.5s ease-in-out infinite, pulseGlow 4s ease-in-out infinite;
+    transition: transform 0.3s ease;
+}
+
+.aiko-hero-image:hover {
+    transform: scale(1.02) translateY(-4px);
+}
+
+/* Status dot interactivo */
+.aiko-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    background: rgba(56, 161, 105, 0.12);
+    color: #276749;
+    font-size: 12px;
+    font-weight: 600;
+    margin-top: 10px;
+}
+
+/* 2. Área del Chat e Historias con Burbujas Suaves */
+.aiko-chat-container .message {
+    animation: slideUpFade 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    border-radius: 20px !important;
+    padding: 12px 18px !important;
+    font-size: 15px !important;
+}
+
+.aiko-chat-container .bot-row .message {
+    background: rgba(255, 255, 255, 0.85) !important;
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(230, 230, 250, 0.8) !important;
+    border-bottom-left-radius: 6px !important;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.03) !important;
+}
+
+.aiko-chat-container .user-row .message {
+    background: linear-gradient(135deg, #ff7eb3 0%, #7afcff 100%) !important;
+    color: #1a202c !important;
+    border-bottom-right-radius: 6px !important;
+    box-shadow: 0 4px 14px rgba(255, 126, 179, 0.25) !important;
+}
+
+/* 3. Cápsula Flotante Inferior (Input, Micrófono y Enviar) */
+.aiko-floating-capsule {
+    background: rgba(255, 255, 255, 0.75) !important;
+    backdrop-filter: blur(20px) !important;
+    -webkit-backdrop-filter: blur(20px) !important;
+    border-radius: 24px !important;
+    padding: 8px 12px !important;
+    border: 1px solid rgba(255, 255, 255, 0.9) !important;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.08) !important;
+    transition: all 0.3s ease !important;
+}
+
+.aiko-floating-capsule:focus-within {
+    box-shadow: 0 12px 32px rgba(255, 126, 179, 0.2) !important;
+    border-color: rgba(255, 126, 179, 0.5) !important;
+}
+
+/* Botones con transiciones fluidas */
+button {
+    border-radius: 18px !important;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+button:hover {
+    transform: translateY(-2px) scale(1.02);
+}
+
+button:active {
+    transform: translateY(0px) scale(0.98);
 }
 """
 
@@ -322,40 +423,42 @@ theme = gr.themes.Soft(
     secondary_hue="indigo",
 )
 
-# Avatar de Aiko que aparecerá junto a sus mensajes en el chat
 AIKO_AVATAR_URL = "https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg"
 
-with gr.Blocks(theme=theme, css=custom_css, title="Aiko Companion") as demo:
+with gr.Blocks(theme=theme, css=custom_css, title="Aiko AI Companion") as demo:
     gr.Markdown("# ✨ Aiko AI Companion")
     
     with gr.Row():
-        # --- COLUMNA IZQUIERDA: PERFIL MANTENIDO ---
+        # --- COLUMNA IZQUIERDA: TARJETA ORGÁNICA (GLASSMORPHISM) ---
         with gr.Column(scale=1, min_width=280):
             gr.HTML("""
-                <div class="aiko-card">
-                    <div class="aiko-image-container">
-                        <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" alt="Aiko 2D">
+                <div class="aiko-organic-card">
+                    <img class="aiko-hero-image" src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" alt="Aiko 2D">
+                    <h3 style="margin-top: 14px; color: #2d3748; font-weight: 700; margin-bottom: 0px; font-size: 20px;">Aiko 🌸</h3>
+                    <div class="aiko-badge">
+                        <span style="width:7px; height:7px; background-color:#38a169; border-radius:50%; display:inline-block;"></span>
+                        En línea y lista
                     </div>
-                    <h3 style="margin-top: 15px; color: #222; font-weight: 700; margin-bottom: 2px;">Aiko 🌸</h3>
-                    <p style="font-size: 13px; color: #666; margin: 0;">✨ Tu compañera virtual</p>
                 </div>
             """)
             voice_toggle = gr.Checkbox(label="🔊 Activar respuesta por voz (ElevenLabs)", value=False)
             audio_output = gr.Audio(label="Voz de Aiko", autoplay=True, interactive=False, visible=False)
 
-        # --- COLUMNA DERECHA: CHAT CON AVATAR Y BOTÓN DE AUDIO JUNTO AL TEXTO ---
+        # --- COLUMNA DERECHA: CHAT CON BURBUJAS Y CÁPSULA FLOTANTE ---
         with gr.Column(scale=2):
             chatbot = gr.Chatbot(
                 height=480, 
                 placeholder="Escribe o habla con Aiko para comenzar...",
-                avatar_images=(None, AIKO_AVATAR_URL) # Agrega la burbuja con la cara de Aiko
+                avatar_images=(None, AIKO_AVATAR_URL),
+                elem_classes="aiko-chat-container"
             )
             
-            # Fila de entrada: Texto + Micrófono tipo Gemini + Botón de Enviar
-            with gr.Row():
-                msg_input = gr.Textbox(show_label=False, placeholder="Escribe un mensaje a Aiko...", scale=5, container=False)
-                mic_input = gr.Audio(sources=["microphone"], type="filepath", label=None, show_label=False, scale=1, container=False)
-                send_btn = gr.Button("Enviar 🚀", variant="primary", scale=1)
+            # Cápsula unificada flotante inferior
+            with gr.Group(elem_classes="aiko-floating-capsule"):
+                with gr.Row(elem_id="input-dock-row"):
+                    msg_input = gr.Textbox(show_label=False, placeholder="Escribe un mensaje a Aiko...", scale=5, container=False)
+                    mic_input = gr.Audio(sources=["microphone"], type="filepath", label=None, show_label=False, scale=1, container=False)
+                    send_btn = gr.Button("Enviar 🚀", variant="primary", scale=1)
 
             # --- VINCULACIÓN DE EVENTOS ---
             msg_input.submit(
