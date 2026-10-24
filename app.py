@@ -1,12 +1,14 @@
 import os
-import json
-import re
 import tempfile
-import gradio as gr
+from fastapi import FastAPI, UploadFile, File, Form
+from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import BaseModel
 from groq import Groq
 from supabase import create_client, Client
 from elevenlabs import ElevenLabs
 from duckduckgo_search import DDGS
+
+app = FastAPI(title="Aiko AI App")
 
 # --- CONFIGURACIÓN DE CLIENTES Y CREDENCIALES ---
 api_key = os.environ.get("GROQ_API_KEY")
@@ -60,13 +62,10 @@ def save_memory(memory_data):
 def perform_web_search(user_message):
     if not user_message or not str(user_message).strip():
         return ""
-    
     msg_lower = str(user_message).lower()
     search_keywords = ["busca", "buscar", "noticias", "quién es", "quien es", "qué es", "que es", "actualidad", "clima", "precio", "hoy", "resultados", "último sobre"]
-    
     if not any(kw in msg_lower for kw in search_keywords):
         return ""
-        
     try:
         with DDGS() as ddgs:
             results = list(ddgs.text(user_message, max_results=3))
@@ -75,14 +74,12 @@ def perform_web_search(user_message):
                 return f"\n[INFORMACIÓN ACTUALIZADA OBTENIDA DE LA WEB]:\n{formatted_results}\n"
     except Exception as e:
         print(f"Error en búsqueda DuckDuckGo: {e}")
-    
     return ""
 
 def handle_reminders_tool(user_message):
     if not user_message or not str(user_message).strip():
         return ""
     msg_lower = str(user_message).lower().strip()
-    
     keywords_ver = ["mis notas", "ver notas", "mis recordatorios", "ver recordatorios", "qué tengo anotado", "que tengo anotado"]
     if any(kw in msg_lower for kw in keywords_ver):
         memory = load_memory()
@@ -91,73 +88,7 @@ def handle_reminders_tool(user_message):
             lista_recs = "\n".join([f"- {r}" for r in recs])
             return f"\n[ACCIÓN REALIZADA]: Notas y recordatorios activos:\n{lista_recs}\n"
         return "\n[ACCIÓN REALIZADA]: No hay notas o recordatorios guardados.\n"
-
-    keywords_borrar = ["borra notas", "borra recordatorios", "limpia notas", "borrar notas", "elimina notas"]
-    if any(kw in msg_lower for kw in keywords_borrar):
-        memory = load_memory()
-        memory["recordatorios"] = []
-        save_memory(memory)
-        return "\n[ACCIÓN REALIZADA]: Has borrado todas las notas cotidianas.\n"
-
-    keywords_guardar = ["anota", "anotar", "recuérdame", "recuerdame", "apunta", "anotame", "guarda", "guardar nota", "nota que"]
-    for kw in keywords_guardar:
-        if kw in msg_lower:
-            partes = str(user_message).split(kw)
-            if len(partes) > 1:
-                texto_nota = partes[1].strip(" :,-queQUE")
-                if texto_nota:
-                    memory = load_memory()
-                    memory.setdefault("recordatorios", [])
-                    if texto_nota not in memory["recordatorios"]:
-                        memory["recordatorios"].append(texto_nota)
-                        save_memory(memory)
-                        return f"\n[ACCIÓN REALIZADA]: Guardada nota personal: \"{texto_nota}\".\n"
     return ""
-
-def extract_key_facts_with_ai(user_message, model_name):
-    if not client or not user_message.strip():
-        return
-    extraction_prompt = (
-        "Analiza el siguiente mensaje del usuario. Determina si menciona algún dato personal, preferencia, "
-        "hecho sobre su vida, gustos, alimentos, frutas, mascotas o detalles que una compañera virtual deba recordar.\n"
-        "Si hay algún dato relevante, extráelo en una frase corta e informativa.\n"
-        "Si NO hay ningún dato relevante, responde ÚNICAMENTE: NINGUNO.\n\n"
-        f"Mensaje: \"{user_message}\""
-    )
-    try:
-        completion = client.chat.completions.create(
-            model=model_name,
-            messages=[{"role": "system", "content": "Eres un extractor de datos clave."},
-                      {"role": "user", "content": extraction_prompt}],
-            temperature=0.2,
-            max_tokens=100,
-        )
-        fact = completion.choices[0].message.content.strip()
-        if fact and "NINGUNO" not in fact.upper():
-            memory = load_memory()
-            if fact not in memory.get("datos_clave", []):
-                memory["datos_clave"].append(fact)
-                save_memory(memory)
-    except Exception as e:
-        print(f"Error extrayendo memoria: {e}")
-
-def get_memory_context():
-    memory = load_memory()
-    context = "\n=== LO QUE RECUERDAS SOBRE EL USUARIO ===\n"
-    if memory.get("usuario"):
-        for k, v in memory.get("usuario", {}).items():
-            context += f"- {k.capitalize()}: {v}\n"
-    if memory.get("datos_clave"):
-        context += "- Hechos recordados:\n"
-        for item in memory.get("datos_clave", []):
-            context += f"  * {item}\n"
-    recs = memory.get("recordatorios", [])
-    if recs:
-        context += "- Notas activas:\n"
-        for r in recs:
-            context += f"  * {r}\n"
-    context += "=========================================="
-    return context
 
 AIKO_BASE_INSTRUCTION = (
     "Eres Aiko, una chica virtual cercana, dulce y amigable con estética anime.\n"
@@ -168,30 +99,8 @@ AIKO_BASE_INSTRUCTION = (
     "- Usa emojis muy moderados (máximo 1 o 2)."
 )
 
-ALLOWED_CHAT_MODELS = [
-    "openai/gpt-oss-120b",
-    "openai/gpt-oss-20b",
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant"
-]
-
 def get_best_chat_model():
-    if not client:
-        return ALLOWED_CHAT_MODELS[0]
-    try:
-        models_response = client.models.list()
-        active_ids = [m.id for m in models_response.data]
-        for model in ALLOWED_CHAT_MODELS:
-            if model in active_ids:
-                return model
-    except Exception:
-        pass
-    return ALLOWED_CHAT_MODELS[0]
-
-def clean_response(text):
-    if not isinstance(text, str):
-        text = str(text)
-    return text.strip()
+    return "openai/gpt-oss-120b"
 
 def transcribe_audio_with_whisper(audio_path):
     if not client or not audio_path:
@@ -229,34 +138,37 @@ def text_to_speech_elevenlabs(text):
         print(f"Error en ElevenLabs: {e}")
         return None
 
-def process_user_input(text_input, mic_audio, voice_enabled, history):
-    if history is None:
-        history = []
-
-    user_message = text_input
+# --- ENDPOINT DE CHAT ---
+@app.post("/api/chat")
+async def chat_endpoint(message: str = Form(None), audio: UploadFile = File(None), voice_enabled: bool = Form(False)):
+    user_message = message
     
-    if not user_message and mic_audio:
-        user_message = transcribe_audio_with_whisper(mic_audio)
+    # Procesar audio si se envió por micrófono
+    if (not user_message or not user_message.strip()) and audio:
+        suffix = os.path.splitext(audio.filename)[1] or ".webm"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp:
+            temp.write(await audio.read())
+            temp_path = temp.name
+        user_message = transcribe_audio_with_whisper(temp_path)
+        try:
+            os.unlink(temp_path)
+        except:
+            pass
 
-    if not user_message or not str(user_message).strip():
-        return history, None, "", None
+    if not user_message or not user_message.strip():
+        return JSONResponse({"error": "Mensaje vacío"}, status_code=400)
 
     model_to_use = get_best_chat_model()
     reminder_context = handle_reminders_tool(user_message)
     web_search_context = perform_web_search(user_message)
-    extract_key_facts_with_ai(user_message, model_to_use)
     
     memory = load_memory()
-    full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + get_memory_context() + "\n" + reminder_context + "\n" + web_search_context
+    full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + reminder_context + "\n" + web_search_context
     messages = [{"role": "system", "content": full_system_instruction}]
 
-    saved_history = memory.get("historial", [])
-    for entry in saved_history[-20:]:
+    for entry in memory.get("historial", [])[-20:]:
         if isinstance(entry, dict):
-            r = entry.get("role", "user")
-            c = entry.get("content", "")
-            if c:
-                messages.append({"role": r, "content": str(c)})
+            messages.append({"role": entry.get("role", "user"), "content": str(entry.get("content", ""))})
 
     messages.append({"role": "user", "content": str(user_message)})
 
@@ -267,255 +179,195 @@ def process_user_input(text_input, mic_audio, voice_enabled, history):
             temperature=0.8,
             max_tokens=256,
         )
-        bot_response = clean_response(completion.choices[0].message.content)
+        bot_response = completion.choices[0].message.content.strip()
 
         memory["historial"].append({"role": "user", "content": user_message})
         memory["historial"].append({"role": "assistant", "content": bot_response})
         save_memory(memory)
 
-        history.append({"role": "user", "content": user_message})
-        history.append({"role": "assistant", "content": bot_response})
-
-        audio_output = None
+        audio_url = None
         if voice_enabled:
-            audio_output = text_to_speech_elevenlabs(bot_response)
+            audio_path = text_to_speech_elevenlabs(bot_response)
+            if audio_path:
+                # Aquí puedes retornar la ruta o convertir a base64 / servir archivo estático
+                pass
 
-        return history, audio_output, "", None
-
+        return {
+            "user_message": user_message,
+            "bot_response": bot_response
+        }
     except Exception as e:
-        err_msg = f"Ocurrió un error: {str(e)}"
-        history.append({"role": "user", "content": user_message})
-        history.append({"role": "assistant", "content": err_msg})
-        return history, None, "", None
+        return JSONResponse({"error": str(e)}, status_code=500)
 
-# --- CSS PERSONALIZADO PARA LA CÁPSULA ESTILO GEMINI ---
-custom_css = """
-@keyframes floatAnim {
-    0%, 100% { transform: translateY(0px); }
-    50% { transform: translateY(-6px); }
-}
+# --- FRONTEND HTML/TAILWIND MODERNO ---
+@app.get("/", response_class=HTMLResponse)
+async def get_frontend():
+    return """
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aiko AI Companion</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes floatAnim {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-6px); }
+        }
+        .animate-float { animation: floatAnim 4.5s ease-in-out infinite; }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-50 to-pink-50 h-screen flex flex-col justify-between overflow-hidden font-sans">
 
-.aiko-organic-card {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 22px;
-    background: rgba(255, 255, 255, 0.6);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    border-radius: 24px;
-    border: 1px solid rgba(255, 255, 255, 0.9);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
-}
+    <!-- Header / Navbar Minimalista -->
+    <header class="bg-white/80 backdrop-blur-md border-b border-pink-100 py-3 px-6 flex items-center justify-between shadow-sm">
+        <div class="flex items-center space-x-3">
+            <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" class="w-10 h-10 rounded-full object-cover border-2 border-pink-400 shadow-sm" alt="Aiko">
+            <div>
+                <h1 class="font-bold text-slate-800 text-sm">Aiko 🌸</h1>
+                <span class="text-xs text-emerald-600 font-medium flex items-center gap-1"><span class="w-2 h-2 bg-emerald-500 rounded-full inline-block"></span> En línea</span>
+            </div>
+        </div>
+        <label class="flex items-center space-x-2 text-xs font-medium text-slate-600 cursor-pointer">
+            <input type="checkbox" id="voiceToggle" class="rounded text-pink-500 focus:ring-pink-400">
+            <span>🔊 Voz activa</span>
+        </label>
+    </header>
 
-.aiko-hero-image {
-    width: 200px;
-    height: 280px;
-    border-radius: 20px;
-    object-fit: cover;
-    object-position: top center;
-    box-shadow: 0 8px 24px rgba(255, 105, 180, 0.25);
-    animation: floatAnim 4.5s ease-in-out infinite;
-}
+    <!-- Contenedor Principal (Split View) -->
+    <main class="flex-1 max-w-5xl w-full mx-auto p-4 grid grid-cols-1 md:grid-cols-3 gap-6 overflow-hidden">
+        
+        <!-- Tarjeta Orgánica de Aiko -->
+        <div class="hidden md:flex flex-col items-center justify-center bg-white/60 backdrop-blur-md p-6 rounded-3xl border border-white/80 shadow-xl shadow-pink-500/5">
+            <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" class="w-48 h-64 rounded-2xl object-cover object-top shadow-lg shadow-pink-500/20 animate-float" alt="Aiko 2D">
+            <h2 class="mt-4 font-bold text-slate-700 text-lg">Aiko 🌸</h2>
+            <p class="text-xs text-slate-500">Tu compañera virtual inteligente</p>
+        </div>
 
-.aiko-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 12px;
-    border-radius: 20px;
-    background: rgba(56, 161, 105, 0.12);
-    color: #276749;
-    font-size: 12px;
-    font-weight: 600;
-    margin-top: 10px;
-}
-
-/* Burbujas del chat dinámicas con avatar */
-.aiko-chat-container .message {
-    border-radius: 18px !important;
-    padding: 12px 16px !important;
-    font-size: 14.5px !important;
-}
-.aiko-chat-container .bot-row .message {
-    background: #ffffff !important;
-    border: 1px solid #f0f0f5 !important;
-    border-bottom-left-radius: 6px !important;
-    box-shadow: 0 3px 10px rgba(0,0,0,0.03) !important;
-}
-.aiko-chat-container .user-row .message {
-    background: linear-gradient(135deg, #ff7eb3 0%, #ff758c 100%) !important;
-    color: white !important;
-    border-bottom-right-radius: 6px !important;
-    box-shadow: 0 3px 10px rgba(255, 117, 140, 0.25) !important;
-}
-
-/* Ocultar elementos auxiliares para que la interfaz quede limpia */
-.element-hidden {
-    display: none !important;
-}
-"""
-
-theme = gr.themes.Soft(
-    primary_hue="pink",
-    secondary_hue="indigo",
-)
-
-AIKO_AVATAR_URL = "https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg"
-
-with gr.Blocks(theme=theme, css=custom_css, title="Aiko AI Companion") as demo:
-    gr.Markdown("# ✨ Aiko AI Companion")
-    
-    with gr.Row():
-        # --- COLUMNA IZQUIERDA: PERFIL ORGÁNICO ---
-        with gr.Column(scale=1, min_width=280):
-            gr.HTML("""
-                <div class="aiko-organic-card">
-                    <img class="aiko-hero-image" src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" alt="Aiko 2D">
-                    <h3 style="margin-top: 14px; color: #2d3748; font-weight: 700; margin-bottom: 0px; font-size: 20px;">Aiko 🌸</h3>
-                    <div class="aiko-badge">
-                        <span style="width:7px; height:7px; background-color:#38a169; border-radius:50%; display:inline-block;"></span>
-                        En línea
+        <!-- Área del Chat -->
+        <div class="md:col-span-2 flex flex-col justify-between bg-white/40 backdrop-blur-sm rounded-3xl border border-white/60 shadow-lg p-4 overflow-hidden">
+            
+            <!-- Historial de mensajes -->
+            <div id="chatContainer" class="flex-1 overflow-y-auto space-y-4 pr-2">
+                <div class="flex items-start space-x-2">
+                    <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" class="w-8 h-8 rounded-full object-cover border border-pink-300">
+                    <div class="bg-white p-4 rounded-2xl rounded-tl-none shadow-sm border border-slate-100 text-slate-700 text-sm max-w-[80%]">
+                        ¡Hola Alex! 🌸 ¿De qué te gustaría hablar hoy?
                     </div>
                 </div>
-            """)
-            voice_toggle = gr.Checkbox(label="🔊 Activar respuesta por voz (ElevenLabs)", value=False)
-            audio_output = gr.Audio(label="Voz de Aiko", autoplay=True, interactive=False, visible=False)
+            </div>
 
-        # --- COLUMNA DERECHA: CHAT Y BARRA ESTILO GEMINI ---
-        with gr.Column(scale=2):
-            chatbot = gr.Chatbot(
-                height=480, 
-                placeholder="Escribe o habla con Aiko para comenzar...",
-                avatar_images=(None, AIKO_AVATAR_URL),
-                elem_classes="aiko-chat-container"
-            )
-            
-            # Componentes reales de Gradio ocultos para enlazar la lógica
-            with gr.Row(elem_classes="element-hidden"):
-                msg_input = gr.Textbox(show_label=False)
-                mic_input = gr.Audio(sources=["microphone"], type="filepath")
-                send_btn = gr.Button("Enviar")
+            <!-- 🎯 CÁPSULA ESTILO GEMINI (IDÉNTICA A TU REFERENCIA) -->
+            <div class="mt-4 bg-white border border-slate-200 rounded-full py-2 px-4 shadow-lg shadow-slate-200/50 flex items-center gap-3 transition-all focus-within:border-pink-400 focus-within:shadow-pink-500/10">
+                <span class="text-slate-400 text-xl cursor-pointer hover:text-slate-600">＋</span>
+                
+                <input type="text" id="userInput" placeholder="Pregúntá..." class="flex-1 border-none outline-none text-slate-700 text-sm bg-transparent">
 
-            # --- CÁPSULA FLOTANTE INTERACTIVA ESTILO GEMINI (HTML + JS) ---
-            gr.HTML("""
-                <div id="gemini-pill-container" style="
-                    background: #ffffff;
-                    border: 1px solid #e2e8f0;
-                    border-radius: 40px;
-                    padding: 8px 16px;
-                    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.06);
-                    display: flex;
-                    align-items: center;
-                    gap: 10px;
-                    margin-top: 10px;
-                    transition: all 0.3s ease;
-                ">
-                    <span style="font-size: 20px; color: #718096; cursor: pointer; padding: 0 4px;" title="Añadir">＋</span>
-                    
-                    <input id="custom-text-input" type="text" placeholder="Pregúntá..." style="
-                        border: none;
-                        outline: none;
-                        flex-grow: 1;
-                        font-size: 15px;
-                        background: transparent;
-                        color: #2d3748;
-                    ">
+                <!-- Botón de Micrófono con Grabación real -->
+                <button id="micBtn" class="text-slate-500 hover:text-pink-500 transition-colors p-1" title="Grabar audio">
+                    🎙️
+                </button>
 
-                    <button id="custom-mic-btn" style="
-                        background: transparent;
-                        border: none;
-                        cursor: pointer;
-                        font-size: 18px;
-                        padding: 6px;
-                        border-radius: 50%;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        color: #4a5568;
-                    " title="Hablar con voz">🎙️</button>
+                <!-- Botón Enviar Circular -->
+                <button id="sendBtn" class="bg-gradient-to-r from-pink-400 to-pink-500 text-white w-9 h-9 rounded-full flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-transform">
+                    🚀
+                </button>
+            </div>
 
-                    <button id="custom-send-btn" style="
-                        background: linear-gradient(135deg, #ff7eb3 0%, #ff758c 100%);
-                        border: none;
-                        cursor: pointer;
-                        width: 38px;
-                        height: 38px;
-                        border-radius: 50%;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        color: white;
-                        box-shadow: 0 4px 12px rgba(255, 117, 140, 0.3);
-                    " title="Enviar">🚀</button>
-                </div>
+        </div>
+    </main>
 
-                <script>
-                setTimeout(() => {
-                    const customInput = document.getElementById('custom-text-input');
-                    const customSend = document.getElementById('custom-send-btn');
-                    const customMic = document.getElementById('custom-mic-btn');
+    <script>
+        const chatContainer = document.getElementById('chatContainer');
+        const userInput = document.getElementById('userInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const micBtn = document.getElementById('micBtn');
+        const voiceToggle = document.getElementById('voiceToggle');
 
-                    // Buscar los inputs reales de Gradio en el DOM
-                    const gradioTextbox = document.querySelector('#' + CSS.escape('input-box') + ' textarea, .gradio-container textarea, input[type="text"]');
-                    const gradioSendBtn = document.querySelector('button.primary');
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
 
-                    if (customInput && gradioTextbox) {
-                        customInput.addEventListener('keydown', function(e) {
-                            if (e.key === 'Enter') {
-                                gradioTextbox.value = customInput.value;
-                                gradioTextbox.dispatchEvent(new Event('input', { bubbles: true }));
-                                gradioTextbox.dispatchEvent(new Event('change', { bubbles: true }));
-                                customInput.value = '';
-                                
-                                setTimeout(() => {
-                                    const submitBtn = document.querySelector('button.primary');
-                                    if (submitBtn) submitBtn.click();
-                                }, 100);
-                            }
-                        });
-                    }
+        async function sendMessage(text = null, audioFile = null) {
+            const messageText = text || userInput.value.trim();
+            if (!messageText && !audioFile) return;
 
-                    if (customSend) {
-                        customSend.addEventListener('click', function() {
-                            const activeTextbox = document.querySelector('.gradio-container textarea, input[type="text"]');
-                            if (activeTextbox && customInput.value.trim() !== '') {
-                                activeTextbox.value = customInput.value;
-                                activeTextbox.dispatchEvent(new Event('input', { bubbles: true }));
-                                activeTextbox.dispatchEvent(new Event('change', { bubbles: true }));
-                                customInput.value = '';
+            // Renderizar mensaje del usuario
+            if (messageText) {
+                chatContainer.innerHTML += `
+                    <div class="flex justify-end">
+                        <div class="bg-gradient-to-r from-pink-400 to-rose-400 text-white p-4 rounded-2xl rounded-tr-none shadow-md text-sm max-w-[80%]">
+                            ${messageText}
+                        </div>
+                    </div>`;
+            }
+            userInput.value = '';
+            chatContainer.scrollTop = chatContainer.scrollHeight;
 
-                                setTimeout(() => {
-                                    const submitBtn = document.querySelector('button.primary');
-                                    if (submitBtn) submitBtn.click();
-                                }, 100);
-                            }
-                        });
-                    }
-                }, 1000);
-                </script>
-            """)
+            const formData = new FormData();
+            if (messageText) formData.append('message', messageText);
+            if (audioFile) formData.append('audio', audioFile);
+            formData.append('voice_enabled', voiceToggle.checked);
 
-            # --- VINCULACIÓN DE EVENTOS BACKEND ---
-            msg_input.submit(
-                process_user_input, 
-                inputs=[msg_input, mic_input, voice_toggle, chatbot], 
-                outputs=[chatbot, audio_output, msg_input, mic_input]
-            )
-            send_btn.click(
-                process_user_input, 
-                inputs=[msg_input, mic_input, voice_toggle, chatbot], 
-                outputs=[chatbot, audio_output, msg_input, mic_input]
-            )
+            try {
+                const response = await fetch('/api/chat', { method: 'POST', body: formData });
+                const data = await response.json();
 
-            mic_input.stop_recording(
-                process_user_input,
-                inputs=[msg_input, mic_input, voice_toggle, chatbot],
-                outputs=[chatbot, audio_output, msg_input, mic_input]
-            )
+                if (data.bot_response) {
+                    chatContainer.innerHTML += `
+                        <div class="flex items-start space-x-2">
+                            <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" class="w-8 h-8 rounded-full object-cover border border-pink-300">
+                            <div class="bg-white p-4 rounded-2xl rounded-tl-none shadow-sm border border-slate-100 text-slate-700 text-sm max-w-[80%]">
+                                ${data.bot_response}
+                            </div>
+                        </div>`;
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                }
+            } catch (err) {
+                console.log("Error:", err);
+            }
+        }
 
-port = int(os.environ.get("PORT", 7860))
+        sendBtn.addEventListener('click', () => sendMessage());
+        userInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        // Lógica de grabación de voz con el micrófono
+        micBtn.addEventListener('click', async () => {
+            if (!isRecording) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+
+                    mediaRecorder.ondataavailable = event => audioChunks.push(event.data);
+                    mediaRecorder.onstop = () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                        sendMessage(null, audioBlob);
+                    };
+
+                    mediaRecorder.start();
+                    isRecording = true;
+                    micBtn.classList.add('text-red-500', 'animate-pulse');
+                    micBtn.title = "Grabando... Clic para detener";
+                } catch (e) {
+                    alert("No se pudo acceder al micrófono.");
+                }
+            } else {
+                mediaRecorder.stop();
+                isRecording = false;
+                micBtn.classList.remove('text-red-500', 'animate-pulse');
+                micBtn.title = "Grabar audio";
+            }
+        });
+    </script>
+</body>
+</html>
+    """
 
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=port)
+    import uvicorn
+    port = int(os.environ.get("PORT", 7860))
+    uvicorn.run(app, host="0.0.0.0", port=port)
