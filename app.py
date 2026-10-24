@@ -264,48 +264,76 @@ def process_user_input(text_input, mic_audio, voice_enabled, history):
         history.append({"role": "assistant", "content": err_msg})
         return history, None, "", None
 
-# --- ESTILOS CSS REFINADOS Y MINIMALISTAS ---
-custom_css = """
-@keyframes breathe {
-    0%, 100% { transform: translateY(0px) scale(1); }
-    50% { transform: translateY(-3px) scale(1.008); }
+# --- ESTILOS NATIVOS DE APLICACIÓN MÓVIL/DESKTOP (APP UI) ---
+app_css = """
+/* Reset de contenedor general para simular App */
+.gradio-container {
+    max-width: 600px !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    background: #f8f9fa !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
 }
-@keyframes blink {
-    0%, 85%, 100% { filter: brightness(1); }
-    88% { filter: brightness(0.8) contrast(1.05); }
-    91% { filter: brightness(1); }
-}
-.aiko-card {
+
+/* Header superior fijo estilo App */
+.app-header {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    justify-content: center;
-    background: linear-gradient(135deg, #ffffff 0%, #f7f9fc 100%);
-    border-radius: 16px;
-    padding: 15px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.05);
-    border: 1px solid #eaeaea;
+    justify-content: space-between;
+    padding: 12px 18px;
+    background: #ffffff;
+    border-bottom: 1px solid #edf2f7;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.03);
 }
-.aiko-image-container {
-    width: 160px;
-    height: 230px;
-    border-radius: 12px;
-    overflow: hidden;
-    border: 3px solid #ffffff;
-    box-shadow: 0 6px 16px rgba(255, 105, 180, 0.2);
-    animation: breathe 4s ease-in-out infinite, blink 5s ease-in-out infinite;
+.app-header-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
 }
-.aiko-image-container img {
-    width: 100%;
-    height: 100%;
+.app-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
     object-fit: cover;
-    object-position: top center;
+    border: 2px solid #ff7eb3;
+    box-shadow: 0 2px 8px rgba(255, 126, 179, 0.3);
 }
-.control-panel {
-    background: #fafbfc;
-    border-radius: 14px;
-    padding: 12px;
-    border: 1px solid #eee;
+.app-status {
+    font-size: 11px;
+    color: #38a169;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.app-status-dot {
+    width: 7px;
+    height: 7px;
+    background-color: #38a169;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+/* Chatbot estilizado como mensajería instantánea */
+.app-chatbot {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 10px !important;
+}
+.app-chatbot .message {
+    border-radius: 18px !important;
+    padding: 10px 16px !important;
+    font-size: 14.5px !important;
+    line-height: 1.4 !important;
+}
+
+/* Panel inferior flotante tipo dock para entrada de mensaje */
+.app-bottom-dock {
+    background: #ffffff;
+    padding: 10px 14px;
+    border-top: 1px solid #edf2f7;
+    box-shadow: 0 -4px 15px rgba(0,0,0,0.03);
 }
 """
 
@@ -314,51 +342,54 @@ theme = gr.themes.Soft(
     secondary_hue="indigo",
 )
 
-with gr.Blocks(theme=theme, css=custom_css, title="Aiko Companion") as demo:
+with gr.Blocks(theme=theme, css=app_css, title="Aiko App") as demo:
     
-    with gr.Row(elem_classes="main-container"):
-        # --- COLUMNA IZQUIERDA: PERFIL Y CONTROLES COMPACTOS ---
-        with gr.Column(scale=1, min_width=260):
-            gr.HTML("""
-                <div class="aiko-card">
-                    <div class="aiko-image-container">
-                        <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" alt="Aiko 2D">
-                    </div>
-                    <h3 style="margin-top: 10px; color: #222; font-weight: 700; margin-bottom: 0px; font-size: 18px;">Aiko 🌸</h3>
-                    <p style="font-size: 12px; color: #666; margin: 2px 0 0 0;">✨ Tu compañera virtual</p>
+    # --- BARRA SUPERIOR DE LA APP ---
+    gr.HTML("""
+        <div class="app-header">
+            <div class="app-header-info">
+                <img class="app-avatar" src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" alt="Aiko">
+                <div>
+                    <h4 style="margin:0; font-size:16px; font-weight:700; color:#1a202c;">Aiko 🌸</h4>
+                    <span class="app-status"><span class="app-status-dot"></span> En línea</span>
                 </div>
-            """)
-            
-            with gr.Group(elem_classes="control-panel"):
-                voice_toggle = gr.Checkbox(label="🔊 Activar voz (ElevenLabs)", value=False)
-                mic_input = gr.Audio(sources=["microphone"], type="filepath", label="🎙️ Háblale a Aiko")
-                audio_output = gr.Audio(label="Voz de Aiko", autoplay=True, interactive=False, visible=False)
+            </div>
+        </div>
+    """)
+    
+    # Switch de voz integrado arriba
+    with gr.Row(variant="compact"):
+        voice_toggle = gr.Checkbox(label="🔊 Respuesta por voz (ElevenLabs)", value=False, container=False)
 
-        # --- COLUMNA DERECHA: CHAT PROTAGONISTA ---
-        with gr.Column(scale=3):
-            chatbot = gr.Chatbot(height=520, placeholder="Escribe o habla con Aiko para comenzar...")
-            
-            with gr.Row():
-                msg_input = gr.Textbox(show_label=False, placeholder="Escribe un mensaje...", scale=4, container=False)
-                send_btn = gr.Button("Enviar 🚀", variant="primary", scale=1)
+    # --- ÁREA DE CONVERSACIÓN ---
+    chatbot = gr.Chatbot(height=480, elem_classes="app-chatbot", placeholder="Habla o escribe para conversar con Aiko...")
+    audio_output = gr.Audio(label="Voz de Aiko", autoplay=True, interactive=False, visible=False)
 
-            # --- VINCULACIÓN DE EVENTOS ---
-            msg_input.submit(
-                process_user_input, 
-                inputs=[msg_input, mic_input, voice_toggle, chatbot], 
-                outputs=[chatbot, audio_output, msg_input, mic_input]
-            )
-            send_btn.click(
-                process_user_input, 
-                inputs=[msg_input, mic_input, voice_toggle, chatbot], 
-                outputs=[chatbot, audio_output, msg_input, mic_input]
-            )
+    # --- BARRA INFERIOR DE ENTRADA (DOCK) ---
+    with gr.Column(elem_classes="app-bottom-dock"):
+        mic_input = gr.Audio(sources=["microphone"], type="filepath", label="🎙️ Toca para hablar", container=False)
+        
+        with gr.Row():
+            msg_input = gr.Textbox(show_label=False, placeholder="Escribe un mensaje...", scale=4, container=False)
+            send_btn = gr.Button("Enviar 🚀", variant="primary", scale=1)
 
-            mic_input.stop_recording(
-                process_user_input,
-                inputs=[msg_input, mic_input, voice_toggle, chatbot],
-                outputs=[chatbot, audio_output, msg_input, mic_input]
-            )
+    # --- VINCULACIÓN DE EVENTOS ---
+    msg_input.submit(
+        process_user_input, 
+        inputs=[msg_input, mic_input, voice_toggle, chatbot], 
+        outputs=[chatbot, audio_output, msg_input, mic_input]
+    )
+    send_btn.click(
+        process_user_input, 
+        inputs=[msg_input, mic_input, voice_toggle, chatbot], 
+        outputs=[chatbot, audio_output, msg_input, mic_input]
+    )
+
+    mic_input.stop_recording(
+        process_user_input,
+        inputs=[msg_input, mic_input, voice_toggle, chatbot],
+        outputs=[chatbot, audio_output, msg_input, mic_input]
+    )
 
 port = int(os.environ.get("PORT", 7860))
 
