@@ -6,6 +6,7 @@ import gradio as gr
 from groq import Groq
 from supabase import create_client, Client
 from elevenlabs import ElevenLabs
+from duckduckgo_search import DDGS
 
 # --- CONFIGURACIÓN DE CLIENTES Y CREDENCIALES ---
 api_key = os.environ.get("GROQ_API_KEY")
@@ -54,6 +55,28 @@ def save_memory(memory_data):
         supabase.table("aiko_memory").update({"data": memory_data}).eq("id", 1).execute()
     except Exception as e:
         print(f"Error al guardar memoria: {e}")
+
+# --- 1. HERRAMIENTA DE BÚSQUEDA WEB (DUCKDUCKGO) ---
+def perform_web_search(user_message):
+    if not user_message or not str(user_message).strip():
+        return ""
+    
+    msg_lower = str(user_message).lower()
+    search_keywords = ["busca", "buscar", "noticias", "quién es", "quien es", "qué es", "que es", "actualidad", "clima", "precio", "hoy", "resultados", "último sobre"]
+    
+    if not any(kw in msg_lower for kw in search_keywords):
+        return ""
+        
+    try:
+        with DDGS() as ddgs:
+            results = list(ddgs.text(user_message, max_results=3))
+            if results:
+                formatted_results = "\n".join([f"- {r.get('title', '')}: {r.get('body', '')}" for r in results])
+                return f"\n[INFORMACIÓN ACTUALIZADA OBTENIDA DE LA WEB]:\n{formatted_results}\n"
+    except Exception as e:
+        print(f"Error en búsqueda DuckDuckGo: {e}")
+    
+    return ""
 
 def handle_reminders_tool(user_message):
     if not user_message or not str(user_message).strip():
@@ -220,10 +243,11 @@ def process_user_input(text_input, mic_audio, voice_enabled, history):
 
     model_to_use = get_best_chat_model()
     reminder_context = handle_reminders_tool(user_message)
+    web_search_context = perform_web_search(user_message)
     extract_key_facts_with_ai(user_message, model_to_use)
     
     memory = load_memory()
-    full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + get_memory_context() + "\n" + reminder_context
+    full_system_instruction = AIKO_BASE_INSTRUCTION + "\n" + get_memory_context() + "\n" + reminder_context + "\n" + web_search_context
     messages = [{"role": "system", "content": full_system_instruction}]
 
     saved_history = memory.get("historial", [])
@@ -264,76 +288,32 @@ def process_user_input(text_input, mic_audio, voice_enabled, history):
         history.append({"role": "assistant", "content": err_msg})
         return history, None, "", None
 
-# --- ESTILOS NATIVOS DE APLICACIÓN MÓVIL/DESKTOP (APP UI) ---
-app_css = """
-/* Reset de contenedor general para simular App */
-.gradio-container {
-    max-width: 600px !important;
-    margin: 0 auto !important;
-    padding: 0 !important;
-    background: #f8f9fa !important;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
-}
-
-/* Header superior fijo estilo App */
-.app-header {
+# --- ESTILOS CSS REFINADOS ---
+custom_css = """
+.aiko-card {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: space-between;
-    padding: 12px 18px;
-    background: #ffffff;
-    border-bottom: 1px solid #edf2f7;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.03);
+    justify-content: center;
+    background: linear-gradient(135deg, #ffffff 0%, #f7f9fc 100%);
+    border-radius: 20px;
+    padding: 20px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+    border: 1px solid #eaeaea;
 }
-.app-header-info {
-    display: flex;
-    align-items: center;
-    gap: 12px;
+.aiko-image-container {
+    width: 200px;
+    height: 290px;
+    border-radius: 15px;
+    overflow: hidden;
+    border: 4px solid #ffffff;
+    box-shadow: 0 6px 20px rgba(255, 105, 180, 0.2);
 }
-.app-avatar {
-    width: 44px;
-    height: 44px;
-    border-radius: 50%;
+.aiko-image-container img {
+    width: 100%;
+    height: 100%;
     object-fit: cover;
-    border: 2px solid #ff7eb3;
-    box-shadow: 0 2px 8px rgba(255, 126, 179, 0.3);
-}
-.app-status {
-    font-size: 11px;
-    color: #38a169;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-.app-status-dot {
-    width: 7px;
-    height: 7px;
-    background-color: #38a169;
-    border-radius: 50%;
-    display: inline-block;
-}
-
-/* Chatbot estilizado como mensajería instantánea */
-.app-chatbot {
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-    padding: 10px !important;
-}
-.app-chatbot .message {
-    border-radius: 18px !important;
-    padding: 10px 16px !important;
-    font-size: 14.5px !important;
-    line-height: 1.4 !important;
-}
-
-/* Panel inferior flotante tipo dock para entrada de mensaje */
-.app-bottom-dock {
-    background: #ffffff;
-    padding: 10px 14px;
-    border-top: 1px solid #edf2f7;
-    box-shadow: 0 -4px 15px rgba(0,0,0,0.03);
+    object-position: top center;
 }
 """
 
@@ -342,54 +322,58 @@ theme = gr.themes.Soft(
     secondary_hue="indigo",
 )
 
-with gr.Blocks(theme=theme, css=app_css, title="Aiko App") as demo:
+# Avatar de Aiko que aparecerá junto a sus mensajes en el chat
+AIKO_AVATAR_URL = "https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg"
+
+with gr.Blocks(theme=theme, css=custom_css, title="Aiko Companion") as demo:
+    gr.Markdown("# ✨ Aiko AI Companion")
     
-    # --- BARRA SUPERIOR DE LA APP ---
-    gr.HTML("""
-        <div class="app-header">
-            <div class="app-header-info">
-                <img class="app-avatar" src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" alt="Aiko">
-                <div>
-                    <h4 style="margin:0; font-size:16px; font-weight:700; color:#1a202c;">Aiko 🌸</h4>
-                    <span class="app-status"><span class="app-status-dot"></span> En línea</span>
+    with gr.Row():
+        # --- COLUMNA IZQUIERDA: PERFIL MANTENIDO ---
+        with gr.Column(scale=1, min_width=280):
+            gr.HTML("""
+                <div class="aiko-card">
+                    <div class="aiko-image-container">
+                        <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" alt="Aiko 2D">
+                    </div>
+                    <h3 style="margin-top: 15px; color: #222; font-weight: 700; margin-bottom: 2px;">Aiko 🌸</h3>
+                    <p style="font-size: 13px; color: #666; margin: 0;">✨ Tu compañera virtual</p>
                 </div>
-            </div>
-        </div>
-    """)
-    
-    # Switch de voz integrado arriba
-    with gr.Row(variant="compact"):
-        voice_toggle = gr.Checkbox(label="🔊 Respuesta por voz (ElevenLabs)", value=False, container=False)
+            """)
+            voice_toggle = gr.Checkbox(label="🔊 Activar respuesta por voz (ElevenLabs)", value=False)
+            audio_output = gr.Audio(label="Voz de Aiko", autoplay=True, interactive=False, visible=False)
 
-    # --- ÁREA DE CONVERSACIÓN ---
-    chatbot = gr.Chatbot(height=480, elem_classes="app-chatbot", placeholder="Habla o escribe para conversar con Aiko...")
-    audio_output = gr.Audio(label="Voz de Aiko", autoplay=True, interactive=False, visible=False)
+        # --- COLUMNA DERECHA: CHAT CON AVATAR Y BOTÓN DE AUDIO JUNTO AL TEXTO ---
+        with gr.Column(scale=2):
+            chatbot = gr.Chatbot(
+                height=480, 
+                placeholder="Escribe o habla con Aiko para comenzar...",
+                avatar_images=(None, AIKO_AVATAR_URL) # Agrega la burbuja con la cara de Aiko
+            )
+            
+            # Fila de entrada: Texto + Micrófono tipo Gemini + Botón de Enviar
+            with gr.Row():
+                msg_input = gr.Textbox(show_label=False, placeholder="Escribe un mensaje a Aiko...", scale=5, container=False)
+                mic_input = gr.Audio(sources=["microphone"], type="filepath", label=None, show_label=False, scale=1, container=False)
+                send_btn = gr.Button("Enviar 🚀", variant="primary", scale=1)
 
-    # --- BARRA INFERIOR DE ENTRADA (DOCK) ---
-    with gr.Column(elem_classes="app-bottom-dock"):
-        mic_input = gr.Audio(sources=["microphone"], type="filepath", label="🎙️ Toca para hablar", container=False)
-        
-        with gr.Row():
-            msg_input = gr.Textbox(show_label=False, placeholder="Escribe un mensaje...", scale=4, container=False)
-            send_btn = gr.Button("Enviar 🚀", variant="primary", scale=1)
+            # --- VINCULACIÓN DE EVENTOS ---
+            msg_input.submit(
+                process_user_input, 
+                inputs=[msg_input, mic_input, voice_toggle, chatbot], 
+                outputs=[chatbot, audio_output, msg_input, mic_input]
+            )
+            send_btn.click(
+                process_user_input, 
+                inputs=[msg_input, mic_input, voice_toggle, chatbot], 
+                outputs=[chatbot, audio_output, msg_input, mic_input]
+            )
 
-    # --- VINCULACIÓN DE EVENTOS ---
-    msg_input.submit(
-        process_user_input, 
-        inputs=[msg_input, mic_input, voice_toggle, chatbot], 
-        outputs=[chatbot, audio_output, msg_input, mic_input]
-    )
-    send_btn.click(
-        process_user_input, 
-        inputs=[msg_input, mic_input, voice_toggle, chatbot], 
-        outputs=[chatbot, audio_output, msg_input, mic_input]
-    )
-
-    mic_input.stop_recording(
-        process_user_input,
-        inputs=[msg_input, mic_input, voice_toggle, chatbot],
-        outputs=[chatbot, audio_output, msg_input, mic_input]
-    )
+            mic_input.stop_recording(
+                process_user_input,
+                inputs=[msg_input, mic_input, voice_toggle, chatbot],
+                outputs=[chatbot, audio_output, msg_input, mic_input]
+            )
 
 port = int(os.environ.get("PORT", 7860))
 
