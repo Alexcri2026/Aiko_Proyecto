@@ -288,68 +288,37 @@ def process_user_input(text_input, mic_audio, voice_enabled, history):
         history.append({"role": "assistant", "content": err_msg})
         return history, None, "", None
 
-# --- CSS AVANZADO: GLASSMORPHISM, ANIMACIONES Y CÁPSULA FLOTANTE ---
+# --- CSS ESTILO GEMINI CAPSULE CON IDENTIDAD AIKO ---
 custom_css = """
-/* Animaciones principales */
 @keyframes floatAnim {
     0%, 100% { transform: translateY(0px); }
-    50% { transform: translateY(-8px); }
+    50% { transform: translateY(-6px); }
 }
 
-@keyframes slideUpFade {
-    from {
-        opacity: 0;
-        transform: translateY(14px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-@keyframes pulseGlow {
-    0%, 100% { box-shadow: 0 0 15px rgba(255, 126, 179, 0.2); }
-    50% { box-shadow: 0 0 25px rgba(255, 126, 179, 0.45); }
-}
-
-/* Contenedor general */
-.gradio-container {
-    background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%) !important;
-}
-
-/* 1. Tarjeta Orgánica de Aiko (Glassmorphism sin recuadro rígido) */
 .aiko-organic-card {
-    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 24px;
-    background: rgba(255, 255, 255, 0.55);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    padding: 22px;
+    background: rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
     border-radius: 24px;
-    border: 1px solid rgba(255, 255, 255, 0.8);
-    box-shadow: 0 12px 32px rgba(31, 38, 135, 0.06);
-    margin-bottom: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.9);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
 }
 
 .aiko-hero-image {
-    width: 210px;
-    height: 300px;
-    border-radius: 22px;
+    width: 200px;
+    height: 280px;
+    border-radius: 20px;
     object-fit: cover;
     object-position: top center;
-    box-shadow: 0 10px 30px rgba(255, 105, 180, 0.3);
-    animation: floatAnim 4.5s ease-in-out infinite, pulseGlow 4s ease-in-out infinite;
-    transition: transform 0.3s ease;
+    box-shadow: 0 8px 24px rgba(255, 105, 180, 0.25);
+    animation: floatAnim 4.5s ease-in-out infinite;
 }
 
-.aiko-hero-image:hover {
-    transform: scale(1.02) translateY(-4px);
-}
-
-/* Status dot interactivo */
 .aiko-badge {
     display: inline-flex;
     align-items: center;
@@ -363,58 +332,40 @@ custom_css = """
     margin-top: 10px;
 }
 
-/* 2. Área del Chat e Historias con Burbujas Suaves */
+/* Burbujas del chat dinámicas */
 .aiko-chat-container .message {
-    animation: slideUpFade 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-    border-radius: 20px !important;
-    padding: 12px 18px !important;
-    font-size: 15px !important;
+    border-radius: 18px !important;
+    padding: 12px 16px !important;
+    font-size: 14.5px !important;
 }
-
 .aiko-chat-container .bot-row .message {
-    background: rgba(255, 255, 255, 0.85) !important;
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(230, 230, 250, 0.8) !important;
+    background: #ffffff !important;
+    border: 1px solid #f0f0f5 !important;
     border-bottom-left-radius: 6px !important;
-    box-shadow: 0 4px 14px rgba(0,0,0,0.03) !important;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.03) !important;
 }
-
 .aiko-chat-container .user-row .message {
-    background: linear-gradient(135deg, #ff7eb3 0%, #7afcff 100%) !important;
-    color: #1a202c !important;
+    background: linear-gradient(135deg, #ff7eb3 0%, #ff758c 100%) !important;
+    color: white !important;
     border-bottom-right-radius: 6px !important;
-    box-shadow: 0 4px 14px rgba(255, 126, 179, 0.25) !important;
+    box-shadow: 0 3px 10px rgba(255, 117, 140, 0.25) !important;
 }
 
-/* 3. Cápsula Flotante Inferior (Input, Micrófono y Enviar) */
-.aiko-floating-capsule {
-    background: rgba(255, 255, 255, 0.75) !important;
-    backdrop-filter: blur(20px) !important;
-    -webkit-backdrop-filter: blur(20px) !important;
-    border-radius: 24px !important;
-    padding: 8px 12px !important;
-    border: 1px solid rgba(255, 255, 255, 0.9) !important;
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.08) !important;
+/* 🎯 CÁPSULA FLOTANTE TIPO GEMINI (EXACTA A LA REFERENCIA) */
+.gemini-input-capsule {
+    background: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 40px !important;
+    padding: 6px 14px !important;
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.06) !important;
+    display: flex !important;
+    align-items: center !important;
     transition: all 0.3s ease !important;
 }
 
-.aiko-floating-capsule:focus-within {
-    box-shadow: 0 12px 32px rgba(255, 126, 179, 0.2) !important;
-    border-color: rgba(255, 126, 179, 0.5) !important;
-}
-
-/* Botones con transiciones fluidas */
-button {
-    border-radius: 18px !important;
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
-}
-
-button:hover {
-    transform: translateY(-2px) scale(1.02);
-}
-
-button:active {
-    transform: translateY(0px) scale(0.98);
+.gemini-input-capsule:focus-within {
+    border-color: #ff7eb3 !important;
+    box-shadow: 0 10px 30px rgba(255, 126, 179, 0.2) !important;
 }
 """
 
@@ -429,7 +380,7 @@ with gr.Blocks(theme=theme, css=custom_css, title="Aiko AI Companion") as demo:
     gr.Markdown("# ✨ Aiko AI Companion")
     
     with gr.Row():
-        # --- COLUMNA IZQUIERDA: TARJETA ORGÁNICA (GLASSMORPHISM) ---
+        # --- COLUMNA IZQUIERDA: PERFIL ORGÁNICO ---
         with gr.Column(scale=1, min_width=280):
             gr.HTML("""
                 <div class="aiko-organic-card">
@@ -437,14 +388,14 @@ with gr.Blocks(theme=theme, css=custom_css, title="Aiko AI Companion") as demo:
                     <h3 style="margin-top: 14px; color: #2d3748; font-weight: 700; margin-bottom: 0px; font-size: 20px;">Aiko 🌸</h3>
                     <div class="aiko-badge">
                         <span style="width:7px; height:7px; background-color:#38a169; border-radius:50%; display:inline-block;"></span>
-                        En línea y lista
+                        En línea
                     </div>
                 </div>
             """)
             voice_toggle = gr.Checkbox(label="🔊 Activar respuesta por voz (ElevenLabs)", value=False)
             audio_output = gr.Audio(label="Voz de Aiko", autoplay=True, interactive=False, visible=False)
 
-        # --- COLUMNA DERECHA: CHAT CON BURBUJAS Y CÁPSULA FLOTANTE ---
+        # --- COLUMNA DERECHA: CHAT Y CÁPSULA IDÉNTICA A GEMINI ---
         with gr.Column(scale=2):
             chatbot = gr.Chatbot(
                 height=480, 
@@ -453,12 +404,11 @@ with gr.Blocks(theme=theme, css=custom_css, title="Aiko AI Companion") as demo:
                 elem_classes="aiko-chat-container"
             )
             
-            # Cápsula unificada flotante inferior
-            with gr.Group(elem_classes="aiko-floating-capsule"):
-                with gr.Row(elem_id="input-dock-row"):
-                    msg_input = gr.Textbox(show_label=False, placeholder="Escribe un mensaje a Aiko...", scale=5, container=False)
-                    mic_input = gr.Audio(sources=["microphone"], type="filepath", label=None, show_label=False, scale=1, container=False)
-                    send_btn = gr.Button("Enviar 🚀", variant="primary", scale=1)
+            # Cápsula inferior con diseño exacto al de la imagen de referencia (Gemini style)
+            with gr.Row(elem_classes="gemini-input-capsule"):
+                msg_input = gr.Textbox(show_label=False, placeholder="Pregúntá...", scale=6, container=False)
+                mic_input = gr.Audio(sources=["microphone"], type="filepath", label=None, show_label=False, scale=1, container=False)
+                send_btn = gr.Button("🚀", variant="primary", scale=1)
 
             # --- VINCULACIÓN DE EVENTOS ---
             msg_input.submit(
