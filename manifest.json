@@ -6,7 +6,7 @@
   "orientation": "portrait",
   "scope": "/",
   "short_name": "aiko-proyecto.onrender",
-  "start_url": "/",
+  "start_url": "https://aiko-proyecto.onrender.com",
   "theme_color": "#ffffff",
   "id": "com.aiko.app",
   "description": "Aplicación web oficial de Aiko.",
