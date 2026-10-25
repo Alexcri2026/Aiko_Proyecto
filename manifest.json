@@ -1,14 +1,9 @@
 {
-  "background_color": "#ffffff",
-  "dir": "ltr",
+  "name": "Aiko",
+  "short_name": "Aiko",
+  "start_url": "/",
   "display": "standalone",
-  "name": "AIKO",
-  "orientation": "portrait",
-  "scope": "/",
-  "short_name": "aiko-proyecto.onrender",
-  "start_url": "https://aiko-proyecto.onrender.com",
-  "theme_color": "#ffffff",
-  "id": "com.aiko.app",
-  "description": "Aplicación web oficial de Aiko.",
-  "lang": "es"
+  "background_color": "#ffffff",
+  "theme_color": "#000000",
+  "icons": []
 }
