@@ -1,25 +1,3 @@
-import streamlit as st
-import os
-
-# Forzar la lectura del manifest.json directamente desde Python
-if "manifest.json" in st.query_params or True: # Truco para interceptar la ruta
-    pass
-
-# O la forma nativa de leer el archivo si alguien entra a la ruta:
-path = "manifest.json"
-if os.path.exists(path):
-    with open(path, "r", encoding="utf-8") as f:
-        manifest_content = f.read()
-        
-        import streamlit as st
-import streamlit.components.v1 as components
-
-# Inyectar el manifest en el HTML de la app
-st.markdown(
-    '<link rel="manifest" href="/manifest.json">', 
-    unsafe_allow_html=True
-)
-
 import os
 import tempfile
 from fastapi import FastAPI, UploadFile, File, Form
