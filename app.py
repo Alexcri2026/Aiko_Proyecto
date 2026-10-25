@@ -1,6 +1,6 @@
 import os
-import tempfile
 import base64
+import tempfile
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 from groq import Groq
