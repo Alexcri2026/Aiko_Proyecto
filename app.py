@@ -1,3 +1,11 @@
+import streamlit as st
+import streamlit.components.v1 as components
+
+# Inyectar el manifest en el HTML de la app
+st.markdown(
+    '<link rel="manifest" href="/manifest.json">', 
+    unsafe_allow_html=True
+)
 import os
 import tempfile
 from fastapi import FastAPI, UploadFile, File, Form
