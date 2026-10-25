@@ -1,5 +1,7 @@
+```python
 import os
 import tempfile
+import base64
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 from groq import Groq
@@ -56,6 +58,23 @@ def save_memory(memory_data):
         supabase.table("aiko_memory").update({"data": memory_data}).eq("id", 1).execute()
     except Exception as e:
         print(f"Error al guardar memoria: {e}")
+
+# --- FUNCIÓN AUXILIAR DE SÍNTESIS DE VOZ (ELEVENLABS B64) ---
+def text_to_speech_base64(text_response):
+    if not eleven_client or not text_response:
+        return None
+    try:
+        audio_generator = eleven_client.text_to_speech.convert(
+            voice_id=AIKO_VOICE_ID,
+            model_id="eleven_multilingual_v2",
+            text=text_response,
+            output_format="mp3_44105_128",
+        )
+        audio_bytes = b"".join(audio_generator)
+        return base64.b64encode(audio_bytes).decode("utf-8")
+    except Exception as e:
+        print(f"Error en ElevenLabs TTS: {e}")
+        return None
 
 # --- HERRAMIENTA DE BÚSQUEDA WEB (DUCKDUCKGO) ---
 def perform_web_search(user_message):
@@ -233,10 +252,18 @@ async def chat_endpoint(message: str = Form(None), audio: UploadFile = File(None
         memory["historial"].append({"role": "assistant", "content": bot_response})
         save_memory(memory)
 
-        return {
+        response_data = {
             "user_message": user_message,
             "bot_response": bot_response
         }
+
+        # Generar audio en Base64 con ElevenLabs si el interruptor de voz está activado
+        if voice_enabled and eleven_client:
+            audio_b64 = text_to_speech_base64(bot_response)
+            if audio_b64:
+                response_data["audio_base64"] = audio_b64
+
+        return response_data
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -318,7 +345,7 @@ async def get_frontend():
             <div class="mt-4 bg-white border border-slate-200 rounded-full py-2 px-4 shadow-lg shadow-slate-200/50 flex items-center gap-3 transition-all focus-within:border-pink-400 focus-within:shadow-pink-500/10">
                 <span class="text-slate-400 text-xl cursor-pointer hover:text-slate-600">＋</span>
                 
-                <input type="text" id="userInput" placeholder="Pregúntá..." class="flex-1 border-none outline-none text-slate-700 text-sm bg-transparent">
+                <input type="text" id="userInput" placeholder="Pregúntale algo a Aiko..." class="flex-1 border-none outline-none text-slate-700 text-sm bg-transparent">
 
                 <!-- Botón de Micrófono -->
                 <button id="micBtn" class="text-slate-500 hover:text-pink-500 transition-colors p-1.5 rounded-full hover:bg-pink-50" title="Grabar audio">
@@ -384,6 +411,12 @@ async def get_frontend():
                             </div>
                         </div>`;
                     chatContainer.scrollTop = chatContainer.scrollHeight;
+
+                    // Reproducir voz si viene codificada en Base64
+                    if (data.audio_base64 && voiceToggle.checked) {
+                        const audio = new Audio(`data:audio/mp3;base64,${data.audio_base64}`);
+                        audio.play().catch(err => console.log("Error al reproducir audio:", err));
+                    }
                 }
             } catch (err) {
                 console.log("Error:", err);
@@ -435,7 +468,6 @@ async def get_frontend():
                     const currentTimeStr = String(now.getHours()).padStart(2, '0') + ":" + String(now.getMinutes()).padStart(2, '0');
 
                     recs.forEach(rec => {
-                        // Buscar patrones de hora tipo "14:30" o "5:00 pm" en el texto de la nota
                         if (rec.includes(currentTimeStr) || rec.toLowerCase().includes(now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false}))) {
                             showAlarm(rec);
                         }
@@ -448,13 +480,12 @@ async def get_frontend():
             alarmBanner.classList.remove('translate-y-[-150%]');
             alarmBanner.classList.add('translate-y-0');
             
-            // Sonido suave de alerta web
             try {
                 const ctx = new (window.AudioContext || window.webkitAudioContext)();
                 const osc = ctx.createOscillator();
                 const gain = ctx.createGain();
                 osc.type = 'sine';
-                osc.frequency.setValueAtTime(587.33, ctx.currentTime); // Nota D5
+                osc.frequency.setValueAtTime(587.33, ctx.currentTime);
                 gain.gain.setValueAtTime(0.1, ctx.currentTime);
                 osc.connect(gain);
                 gain.connect(ctx.destination);
@@ -468,7 +499,6 @@ async def get_frontend():
             alarmBanner.classList.add('translate-y-[-150%]');
         }
 
-        // Revisar alarmas cada 30 segundos de forma automática
         setInterval(checkAlarms, 30000);
     </script>
 </body>
@@ -479,3 +509,4 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 7860))
     uvicorn.run(app, host="0.0.0.0", port=port)
+```
