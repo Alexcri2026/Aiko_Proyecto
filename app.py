@@ -58,7 +58,7 @@ def save_memory(memory_data):
     except Exception as e:
         print(f"Error al guardar memoria: {e}")
 
-# --- FUNCIÓN AUXILIAR DE SÍNTESIS DE VOZ (ELEVENLABS B64) ---
+# --- FUNCIÓN DE VOZ ELEVENLABS (BASE64) ---
 def text_to_speech_base64(text_response):
     if not eleven_client or not text_response:
         return None
@@ -98,7 +98,6 @@ def handle_reminders_tool(user_message):
         return ""
     msg_lower = str(user_message).lower().strip()
     
-    # 1. Ver notas guardadas
     keywords_ver = ["mis notas", "ver notas", "mis recordatorios", "ver recordatorios", "qué tengo anotado", "que tengo anotado"]
     if any(kw in msg_lower for kw in keywords_ver):
         memory = load_memory()
@@ -108,7 +107,6 @@ def handle_reminders_tool(user_message):
             return f"\n[ACCIÓN REALIZADA]: Notas y recordatorios activos:\n{lista_recs}\n"
         return "\n[ACCIÓN REALIZADA]: No hay notas o recordatorios guardados.\n"
 
-    # 2. Borrar notas
     keywords_borrar = ["borra notas", "borra recordatorios", "limpia notas", "borrar notas", "elimina notas"]
     if any(kw in msg_lower for kw in keywords_borrar):
         memory = load_memory()
@@ -116,7 +114,6 @@ def handle_reminders_tool(user_message):
         save_memory(memory)
         return "\n[ACCIÓN REALIZADA]: Has borrado todas las notas cotidianas.\n"
 
-    # 3. Guardar nueva nota o alarma
     keywords_guardar = ["anota", "anotar", "recuérdame", "recuerdame", "apunta", "anotame", "guarda", "guardar nota", "nota que"]
     for kw in keywords_guardar:
         if kw in msg_lower:
@@ -256,17 +253,16 @@ async def chat_endpoint(message: str = Form(None), audio: UploadFile = File(None
             "bot_response": bot_response
         }
 
-        # Generar audio en Base64 con ElevenLabs si el interruptor de voz está activado
         if voice_enabled and eleven_client:
             audio_b64 = text_to_speech_base64(bot_response)
             if audio_b64:
                 response_data["audio_base64"] = audio_b64
 
         return response_data
+
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
-# --- NUEVO ENDPOINT PARA CONSULTAR RECORDATORIOS EN VIVO ---
 @app.get("/api/reminders")
 async def get_reminders_api():
     memory = load_memory()
@@ -292,7 +288,6 @@ async def get_frontend():
 </head>
 <body class="bg-gradient-to-br from-slate-50 to-pink-50 h-screen flex flex-col justify-between overflow-hidden font-sans">
 
-    <!-- Notificación Flotante de Alarma / Recordatorio -->
     <div id="alarmBanner" class="fixed top-5 right-5 z-50 transform translate-y-[-150%] transition-transform duration-500 bg-white/90 backdrop-blur-md border border-pink-300 p-4 rounded-2xl shadow-xl flex items-center space-x-3 max-w-sm">
         <span class="text-2xl">⏰</span>
         <div>
@@ -302,7 +297,6 @@ async def get_frontend():
         <button onclick="dismissAlarm()" class="text-slate-400 hover:text-slate-600 text-sm font-bold ml-auto">✕</button>
     </div>
 
-    <!-- Header / Navbar -->
     <header class="bg-white/80 backdrop-blur-md border-b border-pink-100 py-3 px-6 flex items-center justify-between shadow-sm">
         <div class="flex items-center space-x-3">
             <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" class="w-10 h-10 rounded-full object-cover border-2 border-pink-400 shadow-sm" alt="Aiko">
@@ -317,20 +311,16 @@ async def get_frontend():
         </label>
     </header>
 
-    <!-- Contenedor Principal -->
     <main class="flex-1 max-w-5xl w-full mx-auto p-4 grid grid-cols-1 md:grid-cols-3 gap-6 overflow-hidden">
         
-        <!-- Tarjeta Orgánica de Aiko -->
         <div class="hidden md:flex flex-col items-center justify-center bg-white/60 backdrop-blur-md p-6 rounded-3xl border border-white/80 shadow-xl shadow-pink-500/5">
             <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" class="w-48 h-64 rounded-2xl object-cover object-top shadow-lg shadow-pink-500/20 animate-float" alt="Aiko 2D">
             <h2 class="mt-4 font-bold text-slate-700 text-lg">Aiko 🌸</h2>
             <p class="text-xs text-slate-500">Tu compañera virtual inteligente</p>
         </div>
 
-        <!-- Área del Chat -->
         <div class="md:col-span-2 flex flex-col justify-between bg-white/40 backdrop-blur-sm rounded-3xl border border-white/60 shadow-lg p-4 overflow-hidden">
             
-            <!-- Historial de mensajes -->
             <div id="chatContainer" class="flex-1 overflow-y-auto space-y-4 pr-2">
                 <div class="flex items-start space-x-2">
                     <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" class="w-8 h-8 rounded-full object-cover border border-pink-300">
@@ -340,20 +330,17 @@ async def get_frontend():
                 </div>
             </div>
 
-            <!-- 🎯 CÁPSULA ESTILO GEMINI -->
             <div class="mt-4 bg-white border border-slate-200 rounded-full py-2 px-4 shadow-lg shadow-slate-200/50 flex items-center gap-3 transition-all focus-within:border-pink-400 focus-within:shadow-pink-500/10">
                 <span class="text-slate-400 text-xl cursor-pointer hover:text-slate-600">＋</span>
                 
-                <input type="text" id="userInput" placeholder="Pregúntale algo a Aiko..." class="flex-1 border-none outline-none text-slate-700 text-sm bg-transparent">
+                <input type="text" id="userInput" placeholder="Pregúntá..." class="flex-1 border-none outline-none text-slate-700 text-sm bg-transparent">
 
-                <!-- Botón de Micrófono -->
                 <button id="micBtn" class="text-slate-500 hover:text-pink-500 transition-colors p-1.5 rounded-full hover:bg-pink-50" title="Grabar audio">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
                     </svg>
                 </button>
 
-                <!-- Botón Enviar -->
                 <button id="sendBtn" class="bg-gradient-to-r from-pink-400 to-pink-500 text-white w-9 h-9 rounded-full flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-transform" title="Enviar">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7"></path>
@@ -411,7 +398,6 @@ async def get_frontend():
                         </div>`;
                     chatContainer.scrollTop = chatContainer.scrollHeight;
 
-                    // Reproducir voz si viene codificada en Base64
                     if (data.audio_base64 && voiceToggle.checked) {
                         const audio = new Audio(`data:audio/mp3;base64,${data.audio_base64}`);
                         audio.play().catch(err => console.log("Error al reproducir audio:", err));
@@ -427,7 +413,6 @@ async def get_frontend():
             if (e.key === 'Enter') sendMessage();
         });
 
-        // Grabación de voz
         micBtn.addEventListener('click', async () => {
             if (!isRecording) {
                 try {
@@ -457,7 +442,6 @@ async def get_frontend():
             }
         });
 
-        // --- SISTEMA DE ALARMAS Y DETECCIÓN DE HORA ---
         function checkAlarms() {
             fetch('/api/reminders')
                 .then(res => res.json())
@@ -508,4 +492,3 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 7860))
     uvicorn.run(app, host="0.0.0.0", port=port)
-```
