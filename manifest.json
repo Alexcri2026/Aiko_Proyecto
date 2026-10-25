@@ -1,0 +1,14 @@
+{
+  "background_color": "#ffffff",
+  "dir": "ltr",
+  "display": "standalone",
+  "name": "AIKO",
+  "orientation": "portrait",
+  "scope": "/",
+  "short_name": "aiko-proyecto.onrender",
+  "start_url": "/",
+  "theme_color": "#ffffff",
+  "id": "com.aiko.app",
+  "description": "Aplicación web oficial de Aiko.",
+  "lang": "es"
+}
