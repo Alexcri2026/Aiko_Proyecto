@@ -5,7 +5,6 @@ import streamlit.components.v1 as components
 st.markdown(
     '<link rel="manifest" href="/manifest.json">', 
     unsafe_allow_html=True
-)
 import os
 import tempfile
 from fastapi import FastAPI, UploadFile, File, Form
