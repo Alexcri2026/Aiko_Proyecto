@@ -4,5 +4,4 @@ python-multipart
 groq
 supabase
 elevenlabs
-duckduckgo-search
-streamlit
+googlesearch-python
