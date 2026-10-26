@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from groq import Groq
 from supabase import create_client, Client
 from elevenlabs import ElevenLabs
-from duckduckgo_search import DDGS
+from googlesearch import search
 
 app = FastAPI(title="Aiko AI App")
 
@@ -75,7 +75,7 @@ def text_to_speech_base64(text_response):
         print(f"Error en ElevenLabs TTS: {e}")
         return None
 
-# --- HERRAMIENTA DE BÚSQUEDA WEB (DUCKDUCKGO) ---
+# --- HERRAMIENTA DE BÚSQUEDA WEB (GOOGLE) ---
 def perform_web_search(user_message):
     if not user_message or not str(user_message).strip():
         return ""
@@ -84,13 +84,12 @@ def perform_web_search(user_message):
     if not any(kw in msg_lower for kw in search_keywords):
         return ""
     try:
-        with DDGS() as ddgs:
-            results = list(ddgs.text(user_message, max_results=3))
-            if results:
-                formatted_results = "\n".join([f"- {r.get('title', '')}: {r.get('body', '')}" for r in results])
-                return f"\n[INFORMACIÓN ACTUALIZADA OBTENIDA DE LA WEB]:\n{formatted_results}\n"
+        resultados_urls = list(search(user_message, num_results=3, lang="es"))
+        if resultados_urls:
+            formatted_results = "\n".join([f"- {url}" for url in resultados_urls])
+            return f"\n[INFORMACIÓN ACTUALIZADA OBTENIDA DE LA WEB]:\n{formatted_results}\n"
     except Exception as e:
-        print(f"Error en búsqueda DuckDuckGo: {e}")
+        print(f"Error en búsqueda web: {e}")
     return ""
 
 def handle_reminders_tool(user_message):
