@@ -270,8 +270,7 @@ async def get_reminders_api():
 
 @app.get("/", response_class=HTMLResponse)
 async def get_frontend():
-    return """
-<!DOCTYPE html>
+    return """<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
@@ -288,7 +287,6 @@ async def get_frontend():
 </head>
 <body class="bg-gradient-to-br from-slate-50 to-pink-50 h-screen flex flex-col justify-between overflow-hidden font-sans">
 
-    <!-- Modal / Video Flotante de Nota Guardada -->
     <div id="noteModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm opacity-0 pointer-events-none transition-opacity duration-300">
         <div class="bg-white/90 backdrop-blur-md p-4 rounded-3xl shadow-2xl border border-pink-200 flex flex-col items-center max-w-xs w-full mx-4">
             <h3 class="font-bold text-slate-700 text-sm mb-2">¡Aiko anotando tu nota! 🌸</h3>
@@ -296,5 +294,224 @@ async def get_frontend():
         </div>
     </div>
 
-    <!-- Notificación Flotante de Alarma / Recordatorio -->
-    <div id="alarmBanner" class="fixed top-5 right-5 z-50 transform translate-y-[-150%] transition-transform duration-500 bg
+    <div id="alarmBanner" class="fixed top-5 right-5 z-50 transform translate-y-[-150%] transition-transform duration-500 bg-white/90 backdrop-blur-md border border-pink-300 p-4 rounded-2xl shadow-xl flex items-center space-x-3 max-w-sm">
+        <span class="text-2xl">⏰</span>
+        <div>
+            <h4 class="font-bold text-slate-800 text-sm">¡Alarma de Aiko! 🌸</h4>
+            <p id="alarmText" class="text-xs text-slate-600">Tienes un recordatorio pendiente.</p>
+        </div>
+        <button onclick="dismissAlarm()" class="text-slate-400 hover:text-slate-600 text-sm font-bold ml-auto">✕</button>
+    </div>
+
+    <header class="bg-white/80 backdrop-blur-md border-b border-pink-100 py-3 px-6 flex items-center justify-between shadow-sm">
+        <div class="flex items-center space-x-3">
+            <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" class="w-10 h-10 rounded-full object-cover border-2 border-pink-400 shadow-sm" alt="Aiko">
+            <div>
+                <h1 class="font-bold text-slate-800 text-sm">Aiko 🌸</h1>
+                <span class="text-xs text-emerald-600 font-medium flex items-center gap-1"><span class="w-2 h-2 bg-emerald-500 rounded-full inline-block"></span> En línea</span>
+            </div>
+        </div>
+        <label class="flex items-center space-x-2 text-xs font-medium text-slate-600 cursor-pointer">
+            <input type="checkbox" id="voiceToggle" class="rounded text-pink-500 focus:ring-pink-400">
+            <span>🔊 Voz activa</span>
+        </label>
+    </header>
+
+    <main class="flex-1 max-w-5xl w-full mx-auto p-4 grid grid-cols-1 md:grid-cols-3 gap-6 overflow-hidden">
+        
+        <div class="hidden md:flex flex-col items-center justify-center bg-white/60 backdrop-blur-md p-6 rounded-3xl border border-white/80 shadow-xl shadow-pink-500/5">
+            <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" class="w-48 h-64 rounded-2xl object-cover object-top shadow-lg shadow-pink-500/20 animate-float" alt="Aiko 2D">
+            <h2 class="mt-4 font-bold text-slate-700 text-lg">Aiko 🌸</h2>
+            <p class="text-xs text-slate-500">Tu compañera virtual inteligente</p>
+        </div>
+
+        <div class="md:col-span-2 flex flex-col justify-between bg-white/40 backdrop-blur-sm rounded-3xl border border-white/60 shadow-lg p-4 overflow-hidden">
+            
+            <div id="chatContainer" class="flex-1 overflow-y-auto space-y-4 pr-2">
+                <div class="flex items-start space-x-2">
+                    <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" class="w-8 h-8 rounded-full object-cover border border-pink-300">
+                    <div class="bg-white p-4 rounded-2xl rounded-tl-none shadow-sm border border-slate-100 text-slate-700 text-sm max-w-[80%]">
+                        ¡Hola Alex! 🌸 ¿De qué te gustaría hablar hoy?
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-4 bg-white border border-slate-200 rounded-full py-2 px-4 shadow-lg shadow-slate-200/50 flex items-center gap-3 transition-all focus-within:border-pink-400 focus-within:shadow-pink-500/10">
+                <span class="text-slate-400 text-xl cursor-pointer hover:text-slate-600">＋</span>
+                
+                <input type="text" id="userInput" placeholder="Pregúntá..." class="flex-1 border-none outline-none text-slate-700 text-sm bg-transparent">
+
+                <button id="micBtn" class="text-slate-500 hover:text-pink-500 transition-colors p-1.5 rounded-full hover:bg-pink-50" title="Grabar audio">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
+                    </svg>
+                </button>
+
+                <button id="sendBtn" class="bg-gradient-to-r from-pink-400 to-pink-500 text-white w-9 h-9 rounded-full flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-transform" title="Enviar">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7"></path>
+                    </svg>
+                </button>
+            </div>
+
+        </div>
+    </main>
+
+    <script>
+        const chatContainer = document.getElementById('chatContainer');
+        const userInput = document.getElementById('userInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const micBtn = document.getElementById('micBtn');
+        const voiceToggle = document.getElementById('voiceToggle');
+        const alarmBanner = document.getElementById('alarmBanner');
+        const alarmText = document.getElementById('alarmText');
+        const noteModal = document.getElementById('noteModal');
+        const noteVideo = document.getElementById('noteVideo');
+
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+
+        async function sendMessage(text = null, audioFile = null) {
+            const messageText = text || userInput.value.trim();
+            if (!messageText && !audioFile) return;
+
+            if (messageText) {
+                chatContainer.innerHTML += `
+                    <div class="flex justify-end">
+                        <div class="bg-gradient-to-r from-pink-400 to-rose-400 text-white p-4 rounded-2xl rounded-tr-none shadow-md text-sm max-w-[80%]">
+                            ${messageText}
+                        </div>
+                    </div>`;
+            }
+            userInput.value = '';
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+
+            const formData = new FormData();
+            if (messageText) formData.append('message', messageText);
+            if (audioFile) formData.append('audio', audioFile);
+            formData.append('voice_enabled', voiceToggle.checked);
+
+            try {
+                const response = await fetch('/api/chat', { method: 'POST', body: formData });
+                const data = await response.json();
+
+                if (data.bot_response) {
+                    chatContainer.innerHTML += `
+                        <div class="flex items-start space-x-2">
+                            <img src="https://raw.githubusercontent.com/Alexcri2026/Aiko_Proyecto/main/aiko.jpg" class="w-8 h-8 rounded-full object-cover border border-pink-300">
+                            <div class="bg-white p-4 rounded-2xl rounded-tl-none shadow-sm border border-slate-100 text-slate-700 text-sm max-w-[80%]">
+                                ${data.bot_response}
+                            </div>
+                        </div>`;
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+
+                    if (data.note_saved) {
+                        playNoteAnimation();
+                    }
+
+                    if (data.audio_base64 && voiceToggle.checked) {
+                        const audio = new Audio(`data:audio/mp3;base64,${data.audio_base64}`);
+                        audio.play().catch(err => console.log("Error al reproducir audio:", err));
+                    }
+                }
+            } catch (err) {
+                console.log("Error:", err);
+            }
+        }
+
+        function playNoteAnimation() {
+            noteModal.classList.remove('opacity-0', 'pointer-events-none');
+            noteModal.classList.add('opacity-100');
+            noteVideo.currentTime = 0;
+            noteVideo.play().catch(e => console.log("Error reproduciendo video:", e));
+
+            noteVideo.onended = () => {
+                noteModal.classList.remove('opacity-100');
+                noteModal.classList.add('opacity-0', 'pointer-events-none');
+            };
+        }
+
+        sendBtn.addEventListener('click', () => sendMessage());
+        userInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        micBtn.addEventListener('click', async () => {
+            if (!isRecording) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+
+                    mediaRecorder.ondataavailable = event => audioChunks.push(event.data);
+                    mediaRecorder.onstop = () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                        sendMessage(null, audioBlob);
+                        stream.getTracks().forEach(track => track.stop());
+                    };
+
+                    mediaRecorder.start();
+                    isRecording = true;
+                    micBtn.classList.add('text-red-500', 'bg-red-50', 'animate-pulse');
+                    micBtn.title = "Grabando... Clic para enviar";
+                } catch (e) {
+                    alert("No se pudo acceder al micrófono.");
+                }
+            } else {
+                mediaRecorder.stop();
+                isRecording = false;
+                micBtn.classList.remove('text-red-500', 'bg-red-50', 'animate-pulse');
+                micBtn.title = "Grabar audio";
+            }
+        });
+
+        function checkAlarms() {
+            fetch('/api/reminders')
+                .then(res => res.json())
+                .then(data => {
+                    const recs = data.recordatorios || [];
+                    const now = new Date();
+                    const currentTimeStr = String(now.getHours()).padStart(2, '0') + ":" + String(now.getMinutes()).padStart(2, '0');
+
+                    recs.forEach(rec => {
+                        if (rec.includes(currentTimeStr) || rec.toLowerCase().includes(now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false}))) {
+                            showAlarm(rec);
+                        }
+                    });
+                }).catch(err => console.log(err));
+        }
+
+        function showAlarm(text) {
+            alarmText.innerText = text;
+            alarmBanner.classList.remove('translate-y-[-150%]');
+            alarmBanner.classList.add('translate-y-0');
+            
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+                gain.gain.setValueAtTime(0.1, ctx.currentTime);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + 0.3);
+            } catch(e) {}
+        }
+
+        function dismissAlarm() {
+            alarmBanner.classList.remove('translate-y-0');
+            alarmBanner.classList.add('translate-y-[-150%]');
+        }
+
+        setInterval(checkAlarms, 30000);
+    </script>
+</body>
+</html>"""
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 7860))
+    uvicorn.run(app, host="0.0.0.0", port=port)
